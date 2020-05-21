@@ -15,9 +15,8 @@
 #include <exception>
 #include <iostream>
 
-#ifdef DLAF_WITH_CUDA
+#include <cublas_v2.h>
 #include <cuda_runtime.h>
-#endif
 
 #include "dlaf/common/utils.h"
 
@@ -34,6 +33,35 @@ inline void cuda_call(cudaError_t err, const common::internal::source_location& 
 }
 
 #define DLAF_CUDA_CALL(cuda_f) dlaf::internal::cuda_call((cuda_f), SOURCE_LOCATION())
+
+/// CUBLAS equivalent to `cudaGetErrorString()`
+/// Reference: https://docs.nvidia.com/cuda/cublas/index.html#cublasstatus_t
+static const char* cublasGetErrorString(cublasStatus_t st) {
+  // clang-format off
+  switch (st) {
+    case CUBLAS_STATUS_SUCCESS:          return "CUBLAS_STATUS_SUCCESS";
+    case CUBLAS_STATUS_NOT_INITIALIZED:  return "CUBLAS_STATUS_NOT_INITIALIZED: Check if `cublasCreate()` call is missing!";
+    case CUBLAS_STATUS_ALLOC_FAILED:     return "CUBLAS_STATUS_ALLOC_FAILED: Usually caused by cudaMalloc() failure, free up more resources if available!";
+    case CUBLAS_STATUS_INVALID_VALUE:    return "CUBLAS_STATUS_INVALID_VALUE: Check if parameters and values passed to the function are valid/make sense!";
+    case CUBLAS_STATUS_ARCH_MISMATCH:    return "CUBLAS_STATUS_ARCH_MISMATCH: The function requires feature absent from the device!";
+    case CUBLAS_STATUS_MAPPING_ERROR:    return "CUBLAS_STATUS_MAPPING_ERROR";
+    case CUBLAS_STATUS_EXECUTION_FAILED: return "CUBLAS_STATUS_EXECUTION_FAILED";
+    case CUBLAS_STATUS_INTERNAL_ERROR:   return "CUBLAS_STATUS_INTERNAL_ERROR";
+    case CUBLAS_STATUS_NOT_SUPPORTED:    return "CUBLAS_STATUS_NOT_SUPPORTED";
+    case CUBLAS_STATUS_LICENSE_ERROR:    return "CUBLAS_STATUS_LICENSE_ERROR";
+  }
+  // clang-format on
+  return "UNKNOWN";
+}
+
+inline void cublas_call(cublasStatus_t st, const common::internal::source_location& info) noexcept {
+  if (st != CUBLAS_STATUS_SUCCESS) {
+    std::cout << "[CUBLAS ERROR] " << info << std::endl << cublasGetErrorString(st) << std::endl;
+    std::terminate();
+  }
+}
+
+#define DLAF_CUBLAS_CALL(cublas_f) dlaf::internal::cublas_call((cubas_f), SOURCE_LOCATION())
 
 #endif
 

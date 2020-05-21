@@ -12,17 +12,12 @@
 
 namespace dlaf {
 
-template <class Allocator>
-struct cuda_future_data : hpx::lcos::detail::future_data_allocator<void, Allocator> {
-  using base_future_data = hpx::lcos::detail::future_data_allocator<void, Allocator>;
+struct cuda_future_data : hpx::lcos::detail::future_data<void> {
+  using base_future_data = hpx::lcos::detail::future_data<void>;
   using init_no_addref = typename base_future_data::init_no_addref;
-  using other_allocator =
-      typename std::allocator_traits<Allocator>::template rebind_alloc<cuda_future_data>;
 
   // Sets the future as ready.
-  static void CUDART_CB stream_callback(cudaStream_t, cudaError_t error, void* user_data) {
-    DLAF_CUDA_CALL(error);
-
+  static void CUDART_CB stream_callback(void* user_data) {
     cuda_future_data* this_ = static_cast<cuda_future_data*>(user_data);
 
     // TODO: Perhaps check the threadID to avoid registering multiple times?
@@ -45,8 +40,8 @@ struct cuda_future_data : hpx::lcos::detail::future_data_allocator<void, Allocat
 
   cuda_future_data() : rt_(hpx::get_runtime_ptr()) {}
 
-  cuda_future_data(init_no_addref no_addref, other_allocator const& alloc, cudaStream_t stream)
-      : base_future_data(no_addref, alloc), rt_(hpx::get_runtime_ptr()) {
+  cuda_future_data(init_no_addref no_addref, cudaStream_t stream)
+      : base_future_data(no_addref), rt_(hpx::get_runtime_ptr()) {
     // Hold on to the shared state on behalf of the cuda runtime
     // right away as the callback could be called immediately.
     hpx::lcos::detail::intrusive_ptr_add_ref(this);
@@ -81,7 +76,6 @@ struct cublas_executor {
     // TODO: check if device, handle and stream are valid
   }
 
-  /// \cond NOINTERNAL
   constexpr bool operator==(cublas_executor const& rhs) const noexcept {
     return device_ == rhs.device_;
   }
@@ -93,24 +87,37 @@ struct cublas_executor {
   constexpr cublas_executor const& context() const noexcept {
     return *this;
   }
-  /// \endcond
 
   // TwoWayExecutor interface
   template <typename F, typename... Ts>
   decltype(auto) async_execute(F&& f, Ts&&... ts) const {
-    using future_data_ptr = hpx::memory::intrusive_ptr<cuda_future_data>;
-
     // create a future data shared state
-    future_data_ptr data = new cuda_future_data(cuda_future_data::init_no_addref{});
+    using future_data_ptr = hpx::memory::intrusive_ptr<cuda_future_data>;
+    future_data_ptr data = new cuda_future_data(cuda_future_data::init_no_addref{}, stream_);
 
-    // TODO: DLAF_CUBLAS_CALL
+    // TODO: DLAF_CUBLAS_CALL to handle errors
 
+    // TODO: set pointer mode?
+
+    // Since a given host thread may use multiple devices, set the device to use
+    // before calling the function
     DLAF_CUDA_CALL(cudaSetDevice(device_));
+
+    // TODO: A new cublas context needs to be created after setting the device,
+    // I am not sure how expensive that is...
+
+    // It is not recommended that multiple thread share the same CUBLAS handle
+    // because extreme care needs to be taken when changing or destroying the
+    // hadle.
+
+    // Set the stream on which CUBLAS is to execute
     cublasSetStream(handle_, stream_);
+
+    // TODO: pass the `handle_` to `f(...)`
     f(std::forward<Ts>(ts)...);
 
-    // return a future bound to the shared state
-    return hpx::traits::future_access<hpx::future<int>>::create(std::move(data));
+    // create a future from the future data
+    return hpx::traits::future_access<hpx::future<void>>::create(std::move(data));
   }
 
 private:
