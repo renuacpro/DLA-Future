@@ -40,10 +40,10 @@ static const char* cublasGetErrorString(cublasStatus_t st) {
   // clang-format off
   switch (st) {
     case CUBLAS_STATUS_SUCCESS:          return "CUBLAS_STATUS_SUCCESS";
-    case CUBLAS_STATUS_NOT_INITIALIZED:  return "CUBLAS_STATUS_NOT_INITIALIZED: Check if `cublasCreate()` call is missing!";
-    case CUBLAS_STATUS_ALLOC_FAILED:     return "CUBLAS_STATUS_ALLOC_FAILED: Usually caused by cudaMalloc() failure, free up more resources if available!";
-    case CUBLAS_STATUS_INVALID_VALUE:    return "CUBLAS_STATUS_INVALID_VALUE: Check if parameters and values passed to the function are valid/make sense!";
-    case CUBLAS_STATUS_ARCH_MISMATCH:    return "CUBLAS_STATUS_ARCH_MISMATCH: The function requires feature absent from the device!";
+    case CUBLAS_STATUS_NOT_INITIALIZED:  return "CUBLAS_STATUS_NOT_INITIALIZED";
+    case CUBLAS_STATUS_ALLOC_FAILED:     return "CUBLAS_STATUS_ALLOC_FAILED";
+    case CUBLAS_STATUS_INVALID_VALUE:    return "CUBLAS_STATUS_INVALID_VALUE";
+    case CUBLAS_STATUS_ARCH_MISMATCH:    return "CUBLAS_STATUS_ARCH_MISMATCH";
     case CUBLAS_STATUS_MAPPING_ERROR:    return "CUBLAS_STATUS_MAPPING_ERROR";
     case CUBLAS_STATUS_EXECUTION_FAILED: return "CUBLAS_STATUS_EXECUTION_FAILED";
     case CUBLAS_STATUS_INTERNAL_ERROR:   return "CUBLAS_STATUS_INTERNAL_ERROR";
@@ -61,7 +61,7 @@ inline void cublas_call(cublasStatus_t st, const common::internal::source_locati
   }
 }
 
-#define DLAF_CUBLAS_CALL(cublas_f) dlaf::internal::cublas_call((cubas_f), SOURCE_LOCATION())
+#define DLAF_CUBLAS_CALL(cublas_f) dlaf::internal::cublas_call((cublas_f), SOURCE_LOCATION())
 
 #endif
 
