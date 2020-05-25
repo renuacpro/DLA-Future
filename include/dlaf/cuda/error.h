@@ -23,9 +23,7 @@
 namespace dlaf {
 namespace internal {
 
-#ifdef DLAF_WITH_CUDA
-
-inline void cuda_call(cudaError_t err, const common::internal::source_location& info) noexcept {
+inline void cuda_call(cudaError_t err, const dlaf::common::internal::source_location& info) noexcept {
   if (err != cudaSuccess) {
     std::cout << "[CUDA ERROR] " << info << std::endl << cudaGetErrorString(err) << std::endl;
     std::terminate();
@@ -36,7 +34,7 @@ inline void cuda_call(cudaError_t err, const common::internal::source_location& 
 
 /// CUBLAS equivalent to `cudaGetErrorString()`
 /// Reference: https://docs.nvidia.com/cuda/cublas/index.html#cublasstatus_t
-static const char* cublasGetErrorString(cublasStatus_t st) {
+inline std::string cublas_get_err_string(cublasStatus_t st) {
   // clang-format off
   switch (st) {
     case CUBLAS_STATUS_SUCCESS:          return "CUBLAS_STATUS_SUCCESS";
@@ -54,16 +52,15 @@ static const char* cublasGetErrorString(cublasStatus_t st) {
   return "UNKNOWN";
 }
 
-inline void cublas_call(cublasStatus_t st, const common::internal::source_location& info) noexcept {
+inline void cublas_call(cublasStatus_t st,
+                        const dlaf::common::internal::source_location& info) noexcept {
   if (st != CUBLAS_STATUS_SUCCESS) {
-    std::cout << "[CUBLAS ERROR] " << info << std::endl << cublasGetErrorString(st) << std::endl;
+    std::cout << "[CUBLAS ERROR] " << info << std::endl << cublas_get_err_string(st) << std::endl;
     std::terminate();
   }
 }
 
 #define DLAF_CUBLAS_CALL(cublas_f) dlaf::internal::cublas_call((cublas_f), SOURCE_LOCATION())
-
-#endif
 
 }
 }
