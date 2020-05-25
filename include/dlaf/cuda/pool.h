@@ -52,8 +52,6 @@ inline int num_devices() noexcept {
 // https://github.com/pytorch/pytorch/blob/master/c10/cuda/CUDAStream.h
 // Create a pool for cublas_handles associated to different devices and streams.
 //
-// TODO: spawn a separate thread for each device.
-//
 // TODO: clarify implicit synchronizations ?
 // TODO: clarify Streams are a FIFO structure [1].
 //

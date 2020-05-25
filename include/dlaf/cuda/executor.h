@@ -31,6 +31,39 @@
 
 namespace dlaf {
 
+/// Design rationale:
+///
+/// There are a few different implementation options wrt CUDA and HPX integration.
+///
+/// 1. The approach taken here inserts an event just after a CUBLAS function is called and uses it to
+///    track when the function has finished. Each task calls `hpx::util::yield_while()` and
+///    `cudaEventQuery()` to integrate the call with HPX's scheduler.
+///
+/// 2. The current HPX implementation inserts a callback function on a stream using
+///    `cudaStreamAddCallback()`. The callback registers the OS thread on which the stream is running
+///    with HPX and sets the data associated with a custom future type to indicate that a preceding CUDA
+///    function has completed.
+///
+/// There are a few issues with this approach:
+///  - `cudaStreamAddCallback()` is deprecated in recent CUDA versions and is now superseded by
+///    `cudaLaunchHostFunc()`.
+///  - HPX throws an error if an external thread is registered multiple times, which happens as a result
+///    of the callback being called multiple times. To make this work, the error is currently ignored,
+///    which seems a little hacky.
+///  - The design is based on `targets` instead of `executors`.
+///
+/// 3. [NOT IMPLEMENTED] This approach is similar to how MPI Futures are implemented. `cudaEvent_t` are
+///    stored in a global array and polled for completion whenever a task yields or completes on a pool
+///    that has the polling function registered.
+///
+/// It is unclear at the moment which approach is the best. According to John 1) and 3) ought to have
+/// very similar performance. The two approaches are also available to MPI, performance comparisons
+/// there did not produce a clear winner which appears to confirm John's statement.
+///
+/// Note: It is not recommended that multiple thread share the same CUBLAS handle because extreme care
+///       needs to be taken when changing or destroying the handle.
+///
+
 namespace internal {
 
 // Call the CUBLAS function and schedule an event after it to query when it's done.
@@ -38,10 +71,9 @@ namespace internal {
 // The function calls `cudaSetDevice()` multiple times on each thread, any previous assignment of CUDA
 // devices to threads is not preserved.
 //
-// Note: It is not recommended that multiple thread share the same CUBLAS handle because extreme care
-//       needs to be taken when changing or destroying the handle.
 template <typename F, typename... Ts>
-void run_cublas(int device, cublasHandle_t handle, F&& f, Ts&&... ts) noexcept {
+void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_mode, F&& f,
+                Ts&&... ts) noexcept {
   // Set the device corresponding to the CUBLAS handle.
   //
   // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on the
@@ -70,7 +102,7 @@ void run_cublas(int device, cublasHandle_t handle, F&& f, Ts&&... ts) noexcept {
   {
     static hpx::lcos::local::mutex mt;
     std::lock_guard<hpx::lcos::local::mutex> lk(mt);
-    // TODO: set pointer mode?
+    DLAF_CUBLAS_CALL(cublasSetPointerMode(handle, pointer_mode));
     DLAF_CUBLAS_CALL(f(handle, std::forward<Ts>(ts)...));
     DLAF_CUDA_CALL(cudaEventRecord(event, stream));
   }
@@ -105,8 +137,9 @@ struct cublas_executor {
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
 
   // The pool of host threads on which the calls to handle and device will be made.
-  cublas_executor(cublas_pool& pool, hpx::threads::executors::pool_executor threads_executor)
-      : device_(pool.device_id()), handle_(pool.handle()),
+  cublas_executor(cublas_pool& pool, cublasPointerMode_t pointer_mode,
+                  hpx::threads::executors::pool_executor threads_executor)
+      : device_(pool.device_id()), handle_(pool.handle()), pointer_mode_(pointer_mode),
         threads_executor_(std::move(threads_executor)) {}
 
   constexpr bool operator==(cublas_executor const& rhs) const noexcept {
@@ -125,13 +158,14 @@ struct cublas_executor {
   // Implement the TwoWayExecutor interface.
   template <typename F, typename... Ts>
   hpx::future<void> async_execute(F&& f, Ts&&... ts) const {
-    return hpx::async(threads_executor_, internal::run_cublas, device_, handle_, std::forward<F>(f),
-                      std::forward<Ts>(ts)...);
+    return hpx::async(threads_executor_, internal::run_cublas, device_, handle_, pointer_mode_,
+                      std::forward<F>(f), std::forward<Ts>(ts)...);
   }
 
 private:
   int device_;
   cublasHandle_t handle_;
+  cublasPointerMode_t pointer_mode_;
   hpx::threads::executors::pool_executor threads_executor_;
 };
 
