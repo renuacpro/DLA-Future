@@ -57,8 +57,6 @@ inline int num_devices() noexcept {
 //
 // [1]: CUDA Programming Guide, 3.2.5.5.4. Implicit Synchronization
 //
-// TODO: The pool is not thread safe!
-//
 class cublas_pool {
   int device_;
   std::vector<cublasHandle_t> handles_arr_;

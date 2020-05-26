@@ -31,46 +31,12 @@
 
 namespace dlaf {
 
-/// Design rationale:
-///
-/// There are a few different implementation options wrt CUDA and HPX integration.
-///
-/// 1. The approach taken here inserts an event just after a CUBLAS function is called and uses it to
-///    track when the function has finished. Each task calls `hpx::util::yield_while()` and
-///    `cudaEventQuery()` to integrate the call with HPX's scheduler.
-///
-/// 2. The current HPX implementation inserts a callback function on a stream using
-///    `cudaStreamAddCallback()`. The callback registers the OS thread on which the stream is running
-///    with HPX and sets the data associated with a custom future type to indicate that a preceding CUDA
-///    function has completed.
-///
-/// There are a few issues with this approach:
-///  - `cudaStreamAddCallback()` is deprecated in recent CUDA versions and is now superseded by
-///    `cudaLaunchHostFunc()`.
-///  - HPX throws an error if an external thread is registered multiple times, which happens as a result
-///    of the callback being called multiple times. To make this work, the error is currently ignored,
-///    which seems a little hacky.
-///  - The design is based on `targets` instead of `executors`.
-///
-/// 3. [NOT IMPLEMENTED] This approach is similar to how MPI Futures are implemented. `cudaEvent_t` are
-///    stored in a global array and polled for completion whenever a task yields or completes on a pool
-///    that has the polling function registered.
-///
-/// It is unclear at the moment which approach is the best. According to John 1) and 3) ought to have
-/// very similar performance. The two approaches are also available to MPI, performance comparisons
-/// there did not produce a clear winner which appears to confirm John's statement.
-///
-/// Note: It is not recommended that multiple thread share the same CUBLAS handle because extreme care
-///       needs to be taken when changing or destroying the handle.
-///
-
 namespace internal {
 
 // Call the CUBLAS function and schedule an event after it to query when it's done.
 //
 // The function calls `cudaSetDevice()` multiple times on each thread, any previous assignment of CUDA
 // devices to threads is not preserved.
-//
 template <typename F, typename... Ts>
 void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_mode, F&& f,
                 Ts&&... ts) noexcept {
@@ -131,7 +97,56 @@ void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_m
 
 }
 
-// An executor for CUBLAS functions.
+/// An executor for CUBLAS functions.
+///
+/// Design rationale:
+///
+/// There are a few alternative HPX/CUDA implementation options:
+///
+/// 1) The approach taken here inserts an event just after a CUBLAS function is called and uses it to
+///    track when the function has finished. Each task calls `hpx::util::yield_while()` and
+///    `cudaEventQuery()` to infrom HPX's scheduler when a task is ready.
+///
+/// 2) The current HPX implementation inserts a callback function on a stream using
+///    `cudaStreamAddCallback()`. The callback registers the OS thread on which the stream is running
+///    with HPX and sets the data associated with a custom future type to indicate that a preceding CUDA
+///    function has completed.
+///
+///   There are a few issues with this approach:
+///    - `cudaStreamAddCallback()` is deprecated in recent CUDA versions and is now superseded by
+///      `cudaLaunchHostFunc()`.
+///    - HPX throws an error if an external thread is registered multiple times, which happens as a
+///      result of the callback being called multiple times. To make this work, the error is currently
+///      ignored, which seems a little hacky.
+///    - The design is based on `targets` instead of `executors`.
+///
+/// 3) [NOT IMPLEMENTED] This approach is similar to how MPI Futures are implemented. `cudaEvent_t` are
+///    stored in a global array and polled for completion whenever a task yields or completes on a pool
+///    that has the polling function registered.
+///
+/// It is unclear at the moment which approach is the best. According to John 1) and 3) ought to have
+/// very similar performance. The two approaches are also available to MPI, performance comparisons
+/// there did not produce a clear winner which appears to confirm John's statement.
+///
+/// Most CUDA functions are thread safe, that includes Streams and CUBLAS handles. The executor accepts a
+/// `pool_executor` which specifies the host threads on which the CUBLAS calls are scheduled. There is a
+/// price to pay for potentially sharing the CUBLAS handles between multiple threads:
+///  - `cudaSetDevice()` needs to precede the CUBLAS call to make the it's handle valid on that thread
+///  - a mutex is needed to ensure the event scheduled after the call
+///
+/// We can eliminate both of these if we can dedicate a host thread to a particular device and only
+/// execute CUBLAS / CUDA calls there. There are three approaches to achieve that with HPX:
+/// - a HPX separate pool with a single host thread per device
+/// - force bind a task to a thread
+///
+/// (only possible with John's shared-priority-scheduler)
+///
+/// By default, HPX doesn't support oversubscription, if we were to
+/// dedicate a thread for
+///
+/// To support that mode of operation, HPX needs to be set to support
+/// oversubscribing threads to cores with `hpx::resource::mode_allow_oversubscription` at initialization
+/// within the resource partitioner.
 struct cublas_executor {
   // Associate the parallel_execution_tag executor tag type as a default with this executor.
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
