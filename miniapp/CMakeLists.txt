@@ -11,3 +11,8 @@
 add_executable(miniapp_cholesky miniapp_cholesky.cpp)
 target_link_libraries(miniapp_cholesky PRIVATE DLAF DLAF_test)
 target_add_warnings(miniapp_cholesky)
+
+if(DLAF_WITH_CUDA)
+  add_executable(cublas cublas.cpp)
+  target_link_libraries(cublas PRIVATE DLAF)
+endif()

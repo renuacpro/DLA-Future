@@ -13,14 +13,17 @@
 /// @file
 
 #include <cstddef>
+#include <hpx/util/unwrap.hpp>
 #include <utility>
 #include <vector>
 
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
+#include <hpx/include/async.hpp>
+#include <hpx/include/dataflow.hpp>
 #include <hpx/include/parallel_executors.hpp>
-#include <hpx/include/threads.hpp>
+#include <hpx/include/thread_executors.hpp>
 #include <hpx/lcos/future.hpp>
 #include <hpx/parallel/executors/execution_fwd.hpp>
 #include <hpx/util/yield_while.hpp>
@@ -38,8 +41,8 @@ namespace internal {
 // The function calls `cudaSetDevice()` multiple times on each thread, any previous assignment of CUDA
 // devices to threads is not preserved.
 template <typename F, typename... Ts>
-void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_mode, F&& f,
-                Ts&&... ts) noexcept {
+void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_mode, F f,
+                Ts... ts) noexcept {
   // Set the device corresponding to the CUBLAS handle.
   //
   // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on the
@@ -113,7 +116,7 @@ void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_m
 ///    function has completed.
 ///
 ///   There are a few issues with this approach:
-//
+///
 ///    - `cudaStreamAddCallback()` is deprecated in recent CUDA versions and is now superseded by
 ///      `cudaLaunchHostFunc()`.
 ///    - HPX throws an error if an external thread is registered multiple times, which happens as a
@@ -132,13 +135,13 @@ void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_m
 /// Most CUDA functions are thread safe, that includes Streams and CUBLAS handles. The executor accepts a
 /// `pool_executor` which specifies the host threads on which the CUBLAS calls are scheduled. There is a
 /// price to pay for potentially sharing the CUBLAS handles between multiple threads:
-//
+///
 ///  - `cudaSetDevice()` needs to precede the CUBLAS call to make it's handle valid on that thread
 ///  - a mutex is needed to ensure the event is scheduled after the call and there is nothing in-between
 ///
 /// We can eliminate both of these if we can dedicate a host thread to a particular device and only
 /// execute CUBLAS / CUDA calls there. There are two approaches to achieve that with HPX:
-//
+///
 /// a) separate pools with a single host threads per device
 /// b) force bind tasks to OS threads
 ///
@@ -159,7 +162,7 @@ void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t pointer_m
 /// oversubscription in HPX and allow to schedule more than one HPX OS thread per core. We can do that via
 /// the `hpx::resource::mode_allow_oversubscription` at initialization within the resource partitioner.
 ///
-/// TODO: The above is not yet implemented, further research is needed.
+/// TODO: not yet implemented, further research is needed.
 struct cublas_executor {
   // Associate the parallel_execution_tag executor tag type as a default with this executor.
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
@@ -184,10 +187,16 @@ struct cublas_executor {
   }
 
   // Implement the TwoWayExecutor interface.
+  //
+  // Note: the member can't be marked `const` because of `threads_executor_`.
+  // Note: Passing by universal reference requires certain template heroics and is hardly worth it as
+  //       most parameters are small types such as pointers or integers.
   template <typename F, typename... Ts>
-  hpx::future<void> async_execute(F&& f, Ts&&... ts) const {
-    return hpx::async(threads_executor_, internal::run_cublas, device_, handle_, pointer_mode_,
-                      std::forward<F>(f), std::forward<Ts>(ts)...);
+  hpx::future<void> async_execute(F f, Ts... ts) {
+    auto sched_f = [dev = this->device_, hdl = this->handle_, mode = this->pointer_mode_, f, ts...] {
+      internal::run_cublas<F, Ts...>(dev, hdl, mode, f, ts...);
+    };
+    return hpx::async(threads_executor_, std::move(sched_f));
   }
 
 private:
