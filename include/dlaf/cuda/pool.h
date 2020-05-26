@@ -16,6 +16,7 @@
 
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
+#include <cuda_runtime_api.h>
 
 #include "dlaf/common/assert.h"
 #include "dlaf/cuda/error.h"
@@ -36,27 +37,12 @@ inline int num_devices() noexcept {
   return ndevices;
 }
 
-// For multi-threaded applications that use the same device from different threads, the recommended
-// programming model is to create one CUBLAS handle per thread and use that CUBLAS handle for the entire
-// life of the thread. [1]
+// A pool of handles and streams assigned to a `device`.
 //
-// [1]: cuBLAS Guide, 2.4 cuBLAS Helper Function Reference, cublasCreate()
+// To amortize creation/destruction costs with CUBLAS handles/streams, the recommended best practice is
+// to create all the needed CUBLAS handles/streams upfront and destroy them after the work is done [1].
 //
-
-// For static frameworks the recommended best practice is to create all the needed streams upfront and
-// destroy them after the work is done.
-//
-// https://github.com/pytorch/pytorch/issues/9646
-// TODO: Note: Streams are thread safe.
-//
-// https://github.com/pytorch/pytorch/blob/master/c10/cuda/CUDAStream.h
-// Create a pool for cublas_handles associated to different devices and streams.
-//
-// TODO: clarify implicit synchronizations ?
-// TODO: clarify Streams are a FIFO structure [1].
-//
-// [1]: CUDA Programming Guide, 3.2.5.5.4. Implicit Synchronization
-//
+// [1]: https://github.com/pytorch/pytorch/issues/9646
 class cublas_pool {
   int device_;
   std::vector<cublasHandle_t> handles_arr_;
@@ -97,10 +83,13 @@ public:
 
   ~cublas_pool() noexcept {
     for (cublasHandle_t handle : handles_arr_) {
+      cudaStream_t stream;
+      DLAF_CUBLAS_CALL(cublasGetStream(handle, &stream));
       // This implicitly calls `cublasDeviceSynchronize()` [1].
       //
       // [1]: cuBLAS, section 2.4 cuBLAS Helper Function Reference
       DLAF_CUBLAS_CALL(cublasDestroy(handle));
+      DLAF_CUDA_CALL(cudaStreamDestroy(stream));
     }
   }
 
