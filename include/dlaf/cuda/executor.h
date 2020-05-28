@@ -13,7 +13,6 @@
 /// @file
 
 #include <cstddef>
-#include <hpx/util/unwrap.hpp>
 #include <utility>
 #include <vector>
 
@@ -26,6 +25,7 @@
 #include <hpx/include/thread_executors.hpp>
 #include <hpx/lcos/future.hpp>
 #include <hpx/parallel/executors/execution_fwd.hpp>
+#include <hpx/util/unwrap.hpp>
 #include <hpx/util/yield_while.hpp>
 
 #include "dlaf/common/assert.h"
@@ -168,10 +168,10 @@ struct cublas_executor {
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
 
   // The pool of host threads on which the calls to handle and device will be made.
-  cublas_executor(cublas_pool& pool, cublasPointerMode_t pointer_mode,
-                  hpx::threads::executors::pool_executor threads_executor)
-      : device_(pool.device_id()), handle_(pool.handle()), pointer_mode_(pointer_mode),
-        threads_executor_(std::move(threads_executor)) {}
+  cublas_executor(cublas_pool& pool, bool pointer_mode_host)
+      : device_(pool.device_id()), handle_(pool.handle()),
+        pointer_mode_((pointer_mode_host) ? CUBLAS_POINTER_MODE_HOST : CUBLAS_POINTER_MODE_DEVICE),
+        threads_executor_("default", hpx::threads::thread_priority_high) {}
 
   constexpr bool operator==(cublas_executor const& rhs) const noexcept {
     return device_ == rhs.device_ && handle_ == rhs.handle_ &&
@@ -189,8 +189,7 @@ struct cublas_executor {
   // Implement the TwoWayExecutor interface.
   //
   // Note: the member can't be marked `const` because of `threads_executor_`.
-  // Note: Passing by universal reference requires certain template heroics and is hardly worth it as
-  //       most parameters are small types such as pointers or integers.
+  // Note: Parameters are passed by value as they are small types: pointers, integers or scalars.
   template <typename F, typename... Ts>
   hpx::future<void> async_execute(F f, Ts... ts) {
     auto sched_f = [dev = this->device_, hdl = this->handle_, mode = this->pointer_mode_, f, ts...] {
