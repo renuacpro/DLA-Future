@@ -41,7 +41,7 @@ namespace internal {
 // The function calls `cudaSetDevice()` multiple times on each thread, any previous assignment of CUDA
 // devices to threads is not preserved.
 template <typename F, typename... Ts>
-void run_cublas(int device, cublasHandle_t handle, F f, Ts... ts) noexcept {
+void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t mode, F f, Ts... ts) noexcept {
   // Set the device corresponding to the CUBLAS handle.
   //
   // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on the
@@ -70,6 +70,7 @@ void run_cublas(int device, cublasHandle_t handle, F f, Ts... ts) noexcept {
   {
     static hpx::lcos::local::mutex mt;
     std::lock_guard<hpx::lcos::local::mutex> lk(mt);
+    DLAF_CUBLAS_CALL(cublasSetPointerMode(handle, mode));
     DLAF_CUBLAS_CALL(f(handle, std::forward<Ts>(ts)...));
     DLAF_CUDA_CALL(cudaEventRecord(event, stream));
   }
@@ -142,6 +143,7 @@ void run_cublas(int device, cublasHandle_t handle, F f, Ts... ts) noexcept {
 ///
 /// a) separate pools with a single host threads per device
 /// b) force bind tasks to OS threads
+/// c) TLS (thread local storage)-like approach (TODO)
 ///
 /// Apporach b) can work If either the static scheduler or John's scheduler (shared-priority-scheduler)
 /// is used. Otherwise a hpx task is not guaranteed to actually run on the OS thread where it was
@@ -166,11 +168,8 @@ struct cublas_executor {
   // The pool of host threads on which the calls to handle and device will be made.
   cublas_executor(cublas_pool& pool, bool pointer_mode_host)
       : device_(pool.device_id()), handle_(pool.handle()),
-        threads_executor_("default", hpx::threads::thread_priority_high) {
-    cublasPointerMode_t pointer_mode =
-        (pointer_mode_host) ? CUBLAS_POINTER_MODE_HOST : CUBLAS_POINTER_MODE_DEVICE;
-    DLAF_CUBLAS_CALL(cublasSetPointerMode(handle_, pointer_mode));
-  }
+        pointer_mode_((pointer_mode_host) ? CUBLAS_POINTER_MODE_HOST : CUBLAS_POINTER_MODE_DEVICE),
+        threads_executor_("default", hpx::threads::thread_priority_high) {}
 
   constexpr bool operator==(cublas_executor const& rhs) const noexcept {
     return device_ == rhs.device_ && handle_ == rhs.handle_ &&
@@ -191,7 +190,7 @@ struct cublas_executor {
   // Note: Parameters are passed by value as they are small types: pointers, integers or scalars.
   template <typename F, typename... Ts>
   hpx::future<void> async_execute(F f, Ts... ts) {
-    auto sched_f = [dev = this->device_, hdl = this->handle_, f, ts...] {
+    auto sched_f = [dev = this->device_, hdl = this->handle_, mode = this->pointer_mode_, f, ts...] {
       internal::run_cublas<F, Ts...>(dev, hdl, f, ts...);
     };
     return hpx::async(threads_executor_, std::move(sched_f));
@@ -200,6 +199,7 @@ struct cublas_executor {
 private:
   int device_;
   cublasHandle_t handle_;
+  cublasPointerMode_t pointer_mode_;
   hpx::threads::executors::pool_executor threads_executor_;
 };
 
