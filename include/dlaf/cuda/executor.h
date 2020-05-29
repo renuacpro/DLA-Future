@@ -16,16 +16,13 @@
 #include <utility>
 #include <vector>
 
-#include <cublas_v2.h>
 #include <cuda_runtime.h>
 
 #include <hpx/include/async.hpp>
-#include <hpx/include/dataflow.hpp>
 #include <hpx/include/parallel_executors.hpp>
 #include <hpx/include/thread_executors.hpp>
 #include <hpx/lcos/future.hpp>
 #include <hpx/parallel/executors/execution_fwd.hpp>
-#include <hpx/util/unwrap.hpp>
 #include <hpx/util/yield_while.hpp>
 
 #include "dlaf/common/assert.h"
