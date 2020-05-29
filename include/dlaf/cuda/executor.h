@@ -30,76 +30,13 @@
 
 #include "dlaf/common/assert.h"
 #include "dlaf/cuda/error.h"
+#include "dlaf/cuda/event.h"
 #include "dlaf/cuda/pool.h"
 
 namespace dlaf {
+namespace cuda {
 
-namespace internal {
-
-// Call the CUBLAS function and schedule an event after it to query when it's done.
-//
-// The function calls `cudaSetDevice()` multiple times on each thread, any previous assignment of CUDA
-// devices to threads is not preserved.
-template <typename F, typename... Ts>
-void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t mode, F f, Ts... ts) noexcept {
-  // Set the device corresponding to the CUBLAS handle.
-  //
-  // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on the
-  // same thread may have set a different device, this makes sure the correct device is used. The
-  // function is considered very low overhead call [2].
-  //
-  // [1]: https://docs.nvidia.com/cuda/cublas/index.html#cublascreate
-  // [2]: CUDA Runtime API, section 5.1 Device Management
-  DLAF_CUDA_CALL(cudaSetDevice(device));
-
-  // Use an event to query the CUBLAS kernel for completion. Timing is disabled for performance. [1]
-  //
-  // [1]: CUDA Runtime API, section 5.5 Event Management
-  cudaEvent_t event;
-  DLAF_CUDA_CALL(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
-
-  // Get the stream on which the CUBLAS call is to execute.
-  cudaStream_t stream;
-  DLAF_CUBLAS_CALL(cublasGetStream(handle, &stream));
-
-  // Call the CUBLAS function `f` and schedule an event after it.
-  //
-  // The event indicates the the function `f` has completed. The handle may be shared by mutliple host
-  // threads, the mutex is here to make sure no other CUBLAS calls or events are scheduled between the
-  // call to `f` and it's corresponding event.
-  {
-    static hpx::lcos::local::mutex mt;
-    std::lock_guard<hpx::lcos::local::mutex> lk(mt);
-    DLAF_CUBLAS_CALL(cublasSetPointerMode(handle, mode));
-    DLAF_CUBLAS_CALL(f(handle, std::forward<Ts>(ts)...));
-    DLAF_CUDA_CALL(cudaEventRecord(event, stream));
-  }
-  hpx::util::yield_while([event] {
-    // Note that the call succeeds even if the event is associated to a device that is different from the
-    // current device on the host thread. That could be the case if a previous task executing on the same
-    // host thread set a different device. [1]
-    //
-    // [1]: CUDA Programming Guide, section 3.2.3.6, Stream and Event Behavior
-    cudaError_t err = cudaEventQuery(event);
-
-    // Note: Despite the name, `cudaErrorNotReady` is not considered an error. [1]
-    //
-    // [1]: CUDA Runtime API, section 5.33 Data types used by CUDA Runtime
-    if (err == cudaErrorNotReady) {
-      return true;
-    }
-    else if (err == cudaSuccess) {
-      return false;
-    }
-    DLAF_CUDA_CALL(err);  // An error occured, report and terminate.
-    return false;         // Unreachable!
-  });
-  DLAF_CUDA_CALL(cudaEventDestroy(event));
-}
-
-}
-
-/// An executor for CUBLAS functions.
+/// TODO: This should be moved to the documentation section.
 ///
 /// Design rationale:
 ///
@@ -161,26 +98,26 @@ void run_cublas(int device, cublasHandle_t handle, cublasPointerMode_t mode, F f
 /// threads, we wouldn't want to dedicate a core to it. To overcome that, we have to enable thread
 /// oversubscription in HPX and allow to schedule more than one HPX OS thread per core. We can do that via
 /// the `hpx::resource::mode_allow_oversubscription` at initialization within the resource partitioner.
-struct cublas_executor {
+
+/// An executor for CUDA calls.
+struct executor {
   // Associate the parallel_execution_tag executor tag type as a default with this executor.
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
 
-  // The pool of host threads on which the calls to handle and device will be made.
-  cublas_executor(cublas_pool& pool, bool pointer_mode_host)
-      : device_(pool.device_id()), handle_(pool.handle()),
-        pointer_mode_((pointer_mode_host) ? CUBLAS_POINTER_MODE_HOST : CUBLAS_POINTER_MODE_DEVICE),
+  executor(cuda::pool& pool, bool pointer_mode_host)
+      : device_(pool.device_id()), stream_(pool.stream()),
         threads_executor_("default", hpx::threads::thread_priority_high) {}
 
-  constexpr bool operator==(cublas_executor const& rhs) const noexcept {
-    return device_ == rhs.device_ && handle_ == rhs.handle_ &&
+  constexpr bool operator==(executor const& rhs) const noexcept {
+    return device_ == rhs.device_ && stream_ == rhs.stream_ &&
            threads_executor_ == rhs.threads_executor_;
   }
 
-  constexpr bool operator!=(cublas_executor const& rhs) const noexcept {
+  constexpr bool operator!=(executor const& rhs) const noexcept {
     return !(*this == rhs);
   }
 
-  constexpr cublas_executor const& context() const noexcept {
+  constexpr executor const& context() const noexcept {
     return *this;
   }
 
@@ -190,19 +127,46 @@ struct cublas_executor {
   // Note: Parameters are passed by value as they are small types: pointers, integers or scalars.
   template <typename F, typename... Ts>
   hpx::future<void> async_execute(F f, Ts... ts) {
-    auto sched_f = [dev = this->device_, hdl = this->handle_, mode = this->pointer_mode_, f, ts...] {
-      internal::run_cublas<F, Ts...>(dev, hdl, f, ts...);
+    auto sched_f = [device = device_, stream = stream_, f, ts...] {
+      // Set the device corresponding to the CUDA stream.
+      //
+      // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on
+      // the same thread may have set a different device, this makes sure the correct device is used. The
+      // function is considered very low overhead call [2]. Any previous assignment of CUDA devices to
+      // threads is not preserved.
+      //
+      // [1]: https://docs.nvidia.com/cuda/cublas/index.html#cublascreate
+      // [2]: CUDA Runtime API, section 5.1 Device Management
+      DLAF_CUDA_CALL(cudaSetDevice(device));
+
+      // Use an event to query the CUBLAS kernel for completion. Timing is disabled for performance. [1]
+      //
+      // [1]: CUDA Runtime API, section 5.5 Event Management
+      cuda::Event ev{};
+
+      // Call the CUDA function `f` and schedule an event after it.
+      //
+      // The event indicates the the function `f` has completed. The stream may be shared by mutliple
+      // host threads, the mutex is here to make sure no other CUDA calls or events are scheduled
+      // between the call to `f` and it's corresponding event.
+      {
+        static hpx::lcos::local::mutex mt;
+        std::lock_guard<hpx::lcos::local::mutex> lk(mt);
+        DLAF_CUDA_CALL(f(std::forward<Ts>(ts)..., stream));
+        ev.record(stream);
+      }
+      ev.query();
     };
     return hpx::async(threads_executor_, std::move(sched_f));
   }
 
 private:
   int device_;
-  cublasHandle_t handle_;
-  cublasPointerMode_t pointer_mode_;
+  cudaStream_t stream_;
   hpx::threads::executors::pool_executor threads_executor_;
 };
 
+}
 }
 
 namespace hpx {
@@ -210,7 +174,7 @@ namespace parallel {
 namespace execution {
 
 template <>
-struct is_two_way_executor<dlaf::cublas_executor> : std::true_type {};
+struct is_two_way_executor<dlaf::cuda::executor> : std::true_type {};
 
 }
 }
