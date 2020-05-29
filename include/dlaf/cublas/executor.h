@@ -41,7 +41,7 @@ struct executor {
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
 
   // The pool of host threads on which the calls to handle and device will be made.
-  executor(cublas::pool& pool, bool pointer_mode_host)
+  inline executor(cublas::pool& pool, bool pointer_mode_host)
       : device_(pool.device_id()), handle_(pool.handle()),
         pointer_mode_((pointer_mode_host) ? CUBLAS_POINTER_MODE_HOST : CUBLAS_POINTER_MODE_DEVICE),
         threads_executor_("default", hpx::threads::thread_priority_high) {}

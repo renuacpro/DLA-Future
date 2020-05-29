@@ -46,7 +46,8 @@ public:
   /// models, most support at least 16.
   ///
   /// [1]: CUDA Programming Guide, Table 15. Technical Specifications per Compute Capability
-  pool(const cuda::pool& cuda_pool) noexcept : device_{cuda_pool.device_id()}, curr_handle_id_{0} {
+  inline pool(const cuda::pool& cuda_pool) noexcept
+      : device_{cuda_pool.device_id()}, curr_handle_id_{0} {
     handles_arr_.reserve(static_cast<std::size_t>(cuda_pool.num_streams()));
 
     // A kernel launch will fail if it is issued to a stream that is not associated to the current device. [1]
@@ -61,7 +62,7 @@ public:
     }
   }
 
-  ~pool() noexcept {
+  inline ~pool() noexcept {
     for (cublasHandle_t handle : handles_arr_) {
       // This implicitly calls `cublasDeviceSynchronize()` [1].
       //
@@ -71,22 +72,22 @@ public:
   }
 
   /// Return the device ID of the pool.
-  int device_id() const noexcept {
+  inline int device_id() const noexcept {
     return device_;
   }
 
   /// Return the number of cuBLAS handles available in the pool.
-  int num_handles() const noexcept {
+  inline int num_handles() const noexcept {
     return static_cast<int>(handles_arr_.size());
   }
 
   /// Return the current handle ID.
-  int current_handle_id() const noexcept {
+  inline int current_handle_id() const noexcept {
     return curr_handle_id_;
   }
 
   /// Return handles in Round-Robin.
-  cublasHandle_t handle() noexcept {
+  inline cublasHandle_t handle() noexcept {
     cublasHandle_t hd = handles_arr_[static_cast<std::size_t>(curr_handle_id_)];
     ++curr_handle_id_;
     if (curr_handle_id_ == num_handles())
@@ -97,14 +98,14 @@ public:
   /// Set the current `handle_id`.
   ///
   /// This resets the Round-Robin process starting from `handle_id`.
-  pool& set_handle_id(int handle_id) noexcept {
+  inline pool& set_handle_id(int handle_id) noexcept {
     DLAF_ASSERT(handle_id >= 0);
     DLAF_ASSERT(handle_id < num_handles());
     curr_handle_id_ = handle_id;
     return *this;
   }
 
-  std::vector<cublasHandle_t> const& handles_arr() const noexcept {
+  inline std::vector<cublasHandle_t> const& handles_arr() const noexcept {
     return handles_arr_;
   }
 };

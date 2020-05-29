@@ -20,12 +20,12 @@ public:
   }
 
   // TODO: docs
-  void record(cudaStream_t stream) const noexcept {
+  inline void record(cudaStream_t stream) const noexcept {
     DLAF_CUDA_CALL(cudaEventRecord(event_, stream));
   }
 
   // Queries if the event has completed and yields the HPX task if is not.
-  void query() const noexcept {
+  inline void query() const noexcept {
     hpx::util::yield_while([event = event_] {
       // Note that the call succeeds even if the event is associated to a device that is different from
       // the current device on the host thread. That could be the case if a previous task executing on
@@ -48,7 +48,7 @@ public:
     });
   }
 
-  ~Event() noexcept {
+  inline ~Event() noexcept {
     DLAF_CUDA_CALL(cudaEventDestroy(event_));
   }
 };

@@ -59,7 +59,7 @@ public:
   /// models, most support at least 16.
   ///
   /// [1]: CUDA Programming Guide, Table 15. Technical Specifications per Compute Capability
-  pool(int device, int num_streams) noexcept : device_{device}, curr_stream_id_{0} {
+  inline pool(int device, int num_streams) noexcept : device_{device}, curr_stream_id_{0} {
     DLAF_ASSERT(num_streams >= 1, "At least 1 stream needs to be specified!");
     DLAF_ASSERT(device >= 0, "Valid device IDs start from 0!");
     DLAF_ASSERT(device < num_devices(), "The device ID exceeds the number of available devices!");
@@ -78,29 +78,29 @@ public:
     }
   }
 
-  ~pool() noexcept {
+  inline ~pool() noexcept {
     for (cudaStream_t stream : streams_arr_) {
       DLAF_CUDA_CALL(cudaStreamDestroy(stream));
     }
   }
 
   /// Return the device ID of the pool.
-  int device_id() const noexcept {
+  inline int device_id() const noexcept {
     return device_;
   }
 
   /// Return the number of streams available to this device in the pool.
-  int num_streams() const noexcept {
+  inline int num_streams() const noexcept {
     return static_cast<int>(streams_arr_.size());
   }
 
   /// Return the current stream ID.
-  int current_stream_id() const noexcept {
+  inline int current_stream_id() const noexcept {
     return curr_stream_id_;
   }
 
   /// Return streams in Round-Robin.
-  cudaStream_t stream() noexcept {
+  inline cudaStream_t stream() noexcept {
     cudaStream_t stream = streams_arr_[static_cast<std::size_t>(curr_stream_id_)];
     ++curr_stream_id_;
     if (curr_stream_id_ == num_streams())
@@ -111,14 +111,14 @@ public:
   /// Set the current `stream_id`.
   ///
   /// This resets the Round-Robin process starting from `stream_id`.
-  pool& set_stream_id(int stream_id) noexcept {
+  inline pool& set_stream_id(int stream_id) noexcept {
     DLAF_ASSERT(stream_id >= 0);
     DLAF_ASSERT(stream_id < num_streams());
     curr_stream_id_ = stream_id;
     return *this;
   }
 
-  std::vector<cudaStream_t> const& streams_arr() const noexcept {
+  inline std::vector<cudaStream_t> const& streams_arr() const noexcept {
     return streams_arr_;
   }
 };
