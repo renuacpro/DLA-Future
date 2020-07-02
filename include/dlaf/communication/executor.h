@@ -11,6 +11,10 @@
 
 /// @file
 
+#include <atomic>
+#include <hpx/errors/error.hpp>
+#include <hpx/synchronization/mutex.hpp>
+#include <mutex>
 #include <utility>
 
 #include <mpi.h>
@@ -20,6 +24,7 @@
 #include <hpx/include/thread_executors.hpp>
 #include <hpx/lcos/future.hpp>
 #include <hpx/parallel/executors/execution_fwd.hpp>
+#include <hpx/runtime/threads/thread_helpers.hpp>
 #include <hpx/util/yield_while.hpp>
 
 #include "dlaf/communication/communicator.h"
@@ -59,18 +64,50 @@ namespace comm {
 class executor {
   MPI_Comm comm_;
   hpx::threads::executors::pool_executor ex_;
+  mutable std::atomic<int> curr_counter_;
+  std::atomic<int>* parent_curr_counter_;
 
 public:
   // Associate the parallel_execution_tag executor tag type as a default with this executor.
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
 
-  inline executor(MPI_Comm comm) : comm_(comm), ex_("default", hpx::threads::thread_priority_high) {}
+  executor(std::string pool, MPI_Comm comm)
+      : comm_(comm),
+        ex_(pool, hpx::threads::thread_priority_high), curr_counter_{0}, parent_curr_counter_{nullptr} {}
 
-  inline executor(std::string pool, MPI_Comm comm)
-      : comm_(comm), ex_(pool, hpx::threads::thread_priority_high) {}
+  executor(MPI_Comm comm) : executor("default", comm) {}
+
+  executor& operator=(const executor& o) {
+    comm_ = o.comm_;
+    ex_ = o.ex_;
+    curr_counter_ = 0;
+    parent_curr_counter_ = &o.curr_counter_;  // get a pointer to the parent counter
+    ++o.curr_counter_;                        // increment parent counter;
+    return *this;
+  }
+
+  // The move constructor has to be defined as it is deleted for std::atomic
+  executor& operator=(executor&& o) {
+    comm_ = std::move(o.comm_);
+    ex_ = std::move(o.ex_);
+    curr_counter_ = o.curr_counter_.load();
+    parent_curr_counter_ = o.parent_curr_counter_;
+    // make sure the moved from object doesn't decrement parent in the destructor
+    o.curr_counter_ = 0;
+    o.parent_curr_counter_ = nullptr;
+    return *this;
+  }
+
+  executor(const executor& o) {
+    *this = o;
+  }
+
+  executor(executor&& o) {
+    *this = std::move(o);
+  }
 
   constexpr bool operator==(executor const& rhs) const noexcept {
-    return comm_ == rhs.comm_ && ex_ == rhs.ex_;
+    return comm_ == rhs.comm_ && ex_ == rhs.ex_ && parent_curr_counter_ == rhs.parent_curr_counter_;
   }
 
   constexpr bool operator!=(executor const& rhs) const noexcept {
@@ -122,9 +159,15 @@ public:
   ///
   template <typename F, typename... Ts>
   hpx::future<void> async_execute(F f, Ts... ts) noexcept {
+    hpx::util::yield_while([this]() {
+      // std::cout << "ASYNC: " << curr_counter_ << std::endl;
+      return curr_counter_ != 0;
+    });
+
     // TODO: docs why this is done here instead of within the task
     MPI_Request req;
     mpi_invoke(f, ts..., comm_, &req);
+
     return hpx::async(ex_, [req]() mutable {
       // Yield until non-blocking communication completes.
       hpx::util::yield_while([&req] {
@@ -133,6 +176,16 @@ public:
         return flag == 0;
       });
     });
+  }
+
+  ~executor() {
+    // Wait for all previous copies before destroying
+    hpx::util::yield_while([this]() {
+      std::cout << "DESTR: " << curr_counter_ << std::endl;
+      return curr_counter_ != 0;
+    });
+    if (parent_curr_counter_ != nullptr)
+      --(*parent_curr_counter_);  // decrement parent counter;
   }
 };
 
