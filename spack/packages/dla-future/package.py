@@ -7,32 +7,54 @@ from spack import *
 
 
 class DlaFuture(CMakePackage):
-    """The DLAF package provides DLA-Future library: Distributed Linear Algebra with Future"""
+    """DLA-Future library: Distributed Linear Algebra with Future"""
 
-    homepage = "https://github.com/eth-cscs/DLA-Future.git/wiki"
-    git      = "https://github.com/eth-cscs/DLA-Future.git"
+    homepage = "https://github.com/eth-cscs/DLA-Future/wiki"
+    git      = "https://github.com/eth-cscs/DLA-Future"
 
-    maintainers = ['teonnik', 'Sely85']
+    maintainers = ['teonnik', 'albestro', 'Sely85']
 
     version('develop', branch='master')
 
-    variant('gpu', default=False,
+    variant('cuda', default=False,
             description='Use the GPU/cuBLAS back end.')
+    variant('doc', default=False,
+            description='Build documentation.')
 
-    # Until mpich is default comment this out
-    #depends_on('mpi@3:')
-    depends_on('mpich')
-    depends_on('mkl')
+    depends_on('cmake@3.14:', type='build')
+    depends_on('doxygen', type='build', when='+doc')
+
+    depends_on('mpi')
     depends_on('blaspp')
     depends_on('lapackpp')
-    depends_on('hpx cxxstd=14 networking=none')
-    depends_on('cuda', when='gpu=True')
+    depends_on('hpx@1.4.0:1.4.1 cxxstd=14 networking=none')
+    depends_on('cuda', when='+cuda')
+
+    depends_on('hpx build_type=Debug', when='build_type=Debug')
+    depends_on('hpx build_type=Release', when='build_type=Release')
+    depends_on('hpx build_type=RelWithDebInfo', when='build_type=RelWithDebInfo')
 
     def cmake_args(self):
-       spec = self.spec
-       args = ['-DDLAF_WITH_MKL=ON']
+        spec = self.spec
 
-       if '+gpu' in spec:
-           args.append('-DDLAF_WITH_CUDA=ON')
+        # BLAS/LAPACK
+        if '^mkl' in spec:
+            args = [ self.define('DLAF_WITH_MKL', True) ]
+        else:
+            args = [
+                    self.define('DLAF_WITH_MKL', False),
+                    self.define('LAPACK_TYPE', 'Custom'),
+                    self.define('LAPACK_LIBRARY',
+                        ' '.join([spec[dep].libs.ld_flags for dep in ['blas', 'lapack']]))
+                   ]
 
-       return args
+        # CUDA
+        args.append(self.define_from_variant('DLAF_WITH_CUDA', 'cuda'))
+
+        # DOC
+        args.append(self.define_from_variant('BUILD_DOC', 'doc'))
+
+        # TESTs
+        args.append(self.define('DLAF_WITH_TEST', self.run_tests))
+
+        return args

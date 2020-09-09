@@ -9,7 +9,7 @@
 #
 
 add_executable(miniapp_cholesky miniapp_cholesky.cpp)
-target_link_libraries(miniapp_cholesky PRIVATE DLAF DLAF_test)
+target_link_libraries(miniapp_cholesky PRIVATE DLAF)
 target_add_warnings(miniapp_cholesky)
 
 if(DLAF_WITH_CUDA)
