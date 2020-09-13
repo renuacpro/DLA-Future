@@ -19,12 +19,11 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
+#include <hpx/future.hpp>
 #include <hpx/include/async.hpp>
 #include <hpx/include/parallel_executors.hpp>
 #include <hpx/include/thread_executors.hpp>
-#include <hpx/lcos/future.hpp>
-#include <hpx/parallel/executors/execution_fwd.hpp>
-#include <hpx/util/yield_while.hpp>
+#include <hpx/modules/execution_base.hpp>
 
 #include "dlaf/common/assert.h"
 #include "dlaf/cublas/error.h"

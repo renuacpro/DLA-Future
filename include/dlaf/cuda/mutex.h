@@ -1,6 +1,6 @@
 #pragma once
 
-#include <hpx/lcos/future.hpp>
+#include <hpx/future.hpp>
 
 namespace dlaf {
 namespace cuda {

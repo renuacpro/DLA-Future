@@ -1,6 +1,6 @@
 #include <cuda_runtime.h>
 
-#include <hpx/util/yield_while.hpp>
+#include <hpx/modules/execution_base.hpp>
 
 #include "dlaf/cuda/error.h"
 
