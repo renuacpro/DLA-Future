@@ -59,7 +59,7 @@ public:
   /// models, most support at least 16.
   ///
   /// [1]: CUDA Programming Guide, Table 15. Technical Specifications per Compute Capability
-  inline pool(int device, int num_streams) noexcept : device_{device}, curr_stream_id_{0} {
+  pool(int device, int num_streams) noexcept : device_{device}, curr_stream_id_{0} {
     DLAF_ASSERT(num_streams >= 1, "At least 1 stream needs to be specified!");
     DLAF_ASSERT(device >= 0, "Valid device IDs start from 0!");
     DLAF_ASSERT(device < num_devices(), "The device ID exceeds the number of available devices!");
@@ -85,22 +85,22 @@ public:
   }
 
   /// Return the device ID of the pool.
-  inline int device_id() const noexcept {
+  int device_id() const noexcept {
     return device_;
   }
 
   /// Return the number of streams available to this device in the pool.
-  inline int num_streams() const noexcept {
+  int num_streams() const noexcept {
     return static_cast<int>(streams_arr_.size());
   }
 
   /// Return the current stream ID.
-  inline int current_stream_id() const noexcept {
+  int current_stream_id() const noexcept {
     return curr_stream_id_;
   }
 
   /// Return streams in Round-Robin.
-  inline cudaStream_t stream() noexcept {
+  cudaStream_t stream() noexcept {
     cudaStream_t stream = streams_arr_[static_cast<std::size_t>(curr_stream_id_)];
     ++curr_stream_id_;
     if (curr_stream_id_ == num_streams())
@@ -111,14 +111,14 @@ public:
   /// Set the current `stream_id`.
   ///
   /// This resets the Round-Robin process starting from `stream_id`.
-  inline pool& set_stream_id(int stream_id) noexcept {
-    DLAF_ASSERT(stream_id >= 0);
-    DLAF_ASSERT(stream_id < num_streams());
+  pool& set_stream_id(int stream_id) noexcept {
+    DLAF_ASSERT(stream_id >= 0, stream_id);
+    DLAF_ASSERT(stream_id < num_streams(), stream_id);
     curr_stream_id_ = stream_id;
     return *this;
   }
 
-  inline std::vector<cudaStream_t> const& streams_arr() const noexcept {
+  std::vector<cudaStream_t> const& streams_arr() const noexcept {
     return streams_arr_;
   }
 };

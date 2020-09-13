@@ -31,6 +31,7 @@
 #include "dlaf/cublas/pool.h"
 #include "dlaf/cuda/error.h"
 #include "dlaf/cuda/event.h"
+#include "dlaf/cuda/mutex.h"
 
 namespace dlaf {
 namespace cublas {
@@ -65,41 +66,37 @@ struct executor {
   // Note: Parameters are passed by value as they are small types: pointers, integers or scalars.
   template <typename F, typename... Ts>
   hpx::future<void> async_execute(F f, Ts... ts) {
-    auto sched_f = [device = device_, handle = handle_, mode = pointer_mode_, f, ts...] {
-      // Set the device corresponding to the CUBLAS handle.
-      //
-      // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on
-      // the same thread may have set a different device, this makes sure the correct device is used. The
-      // function is considered very low overhead call [2].
-      //
-      // [1]: https://docs.nvidia.com/cuda/cublas/index.html#cublascreate
-      // [2]: CUDA Runtime API, section 5.1 Device Management
-      DLAF_CUDA_CALL(cudaSetDevice(device));
+    // Set the device corresponding to the CUBLAS handle.
+    //
+    // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on
+    // the same thread may have set a different device, this makes sure the correct device is used. The
+    // function is considered very low overhead call [2].
+    //
+    // [1]: https://docs.nvidia.com/cuda/cublas/index.html#cublascreate
+    // [2]: CUDA Runtime API, section 5.1 Device Management
+    DLAF_CUDA_CALL(cudaSetDevice(device_));
 
-      // Use an event to query the CUBLAS kernel for completion. Timing is disabled for performance. [1]
-      //
-      // [1]: CUDA Runtime API, section 5.5 Event Management
-      cuda::Event ev{};
+    // Use an event to query the CUBLAS kernel for completion. Timing is disabled for performance. [1]
+    //
+    // [1]: CUDA Runtime API, section 5.5 Event Management
+    cuda::Event ev{};
 
-      // Get the stream on which the CUBLAS call is to execute.
-      cudaStream_t stream;
-      DLAF_CUBLAS_CALL(cublasGetStream(handle, &stream));
+    // Get the stream on which the CUBLAS call is to execute.
+    cudaStream_t stream;
+    DLAF_CUBLAS_CALL(cublasGetStream(handle_, &stream));
 
-      // Call the CUBLAS function `f` and schedule an event after it.
-      //
-      // The event indicates the the function `f` has completed. The handle may be shared by mutliple
-      // host threads, the mutex is here to make sure no other CUBLAS calls or events are scheduled
-      // between the call to `f` and it's corresponding event.
-      {
-        static hpx::lcos::local::mutex mt;
-        std::lock_guard<hpx::lcos::local::mutex> lk(mt);
-        DLAF_CUBLAS_CALL(cublasSetPointerMode(handle, mode));
-        DLAF_CUBLAS_CALL(f(handle, std::forward<Ts>(ts)...));
-        ev.record(stream);
-      }
-      ev.query();
-    };
-    return hpx::async(threads_executor_, std::move(sched_f));
+    // Call the CUBLAS function `f` and schedule an event after it.
+    //
+    // The event indicates the the function `f` has completed. The handle may be shared by mutliple
+    // host threads, the mutex is here to make sure no other CUBLAS calls or events are scheduled
+    // between the call to `f` and it's corresponding event.
+    {
+      std::lock_guard<hpx::lcos::local::mutex> lk(cuda::internal::get_cuda_mtx());
+      DLAF_CUBLAS_CALL(cublasSetPointerMode(handle_, pointer_mode_));
+      DLAF_CUBLAS_CALL(f(handle_, ts...));
+      ev.record(stream);
+    }
+    return hpx::async(threads_executor_, [e = std::move(ev)] { e.query(); });
   }
 
 private:

@@ -112,12 +112,18 @@ target_link_libraries(dlaf.solver PUBLIC dlaf.prop)
 add_library(dlaf.auxiliary OBJECT auxiliary/mc.cpp)
 target_link_libraries(dlaf.auxiliary PUBLIC dlaf.prop)
 
+if(DLAF_WITH_CUDA)
+  add_library(dlaf.cuda OBJECT cuda/mutex.cpp)
+  target_link_libraries(dlaf.cuda PUBLIC dlaf.prop)
+endif()
+
 # Define DLAF's complete library
 add_library(DLAF
   $<TARGET_OBJECTS:dlaf.core>
   $<TARGET_OBJECTS:dlaf.factorization>
   $<TARGET_OBJECTS:dlaf.solver>
   $<TARGET_OBJECTS:dlaf.auxiliary>
+  $<$<BOOL:${DLAF_WITH_CUDA}>:$<TARGET_OBJECTS:dlaf.cuda>>
 )
 target_link_libraries(DLAF PUBLIC dlaf.prop)
 target_add_warnings(DLAF)

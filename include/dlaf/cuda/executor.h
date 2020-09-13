@@ -28,6 +28,7 @@
 #include "dlaf/common/assert.h"
 #include "dlaf/cuda/error.h"
 #include "dlaf/cuda/event.h"
+#include "dlaf/cuda/mutex.h"
 #include "dlaf/cuda/pool.h"
 
 namespace dlaf {
@@ -61,37 +62,33 @@ struct executor {
   // Note: Parameters are passed by value as they are small types: pointers, integers or scalars.
   template <typename F, typename... Ts>
   hpx::future<void> async_execute(F f, Ts... ts) {
-    auto sched_f = [device = device_, stream = stream_, f, ts...] {
-      // Set the device corresponding to the CUDA stream.
-      //
-      // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on
-      // the same thread may have set a different device, this makes sure the correct device is used. The
-      // function is considered very low overhead call [2]. Any previous assignment of CUDA devices to
-      // threads is not preserved.
-      //
-      // [1]: https://docs.nvidia.com/cuda/cublas/index.html#cublascreate
-      // [2]: CUDA Runtime API, section 5.1 Device Management
-      DLAF_CUDA_CALL(cudaSetDevice(device));
+    // Set the device corresponding to the CUDA stream.
+    //
+    // The CUBLAS library context is tied to the current CUDA device [1]. A previous task scheduled on
+    // the same thread may have set a different device, this makes sure the correct device is used. The
+    // function is considered very low overhead call [2]. Any previous assignment of CUDA devices to
+    // threads is not preserved.
+    //
+    // [1]: https://docs.nvidia.com/cuda/cublas/index.html#cublascreate
+    // [2]: CUDA Runtime API, section 5.1 Device Management
+    DLAF_CUDA_CALL(cudaSetDevice(device_));
 
-      // Use an event to query the CUBLAS kernel for completion. Timing is disabled for performance. [1]
-      //
-      // [1]: CUDA Runtime API, section 5.5 Event Management
-      cuda::Event ev{};
+    // Use an event to query the CUBLAS kernel for completion. Timing is disabled for performance. [1]
+    //
+    // [1]: CUDA Runtime API, section 5.5 Event Management
+    cuda::Event ev{};
 
-      // Call the CUDA function `f` and schedule an event after it.
-      //
-      // The event indicates the the function `f` has completed. The stream may be shared by mutliple
-      // host threads, the mutex is here to make sure no other CUDA calls or events are scheduled
-      // between the call to `f` and it's corresponding event.
-      {
-        static hpx::lcos::local::mutex mt;
-        std::lock_guard<hpx::lcos::local::mutex> lk(mt);
-        DLAF_CUDA_CALL(f(std::forward<Ts>(ts)..., stream));
-        ev.record(stream);
-      }
-      ev.query();
-    };
-    return hpx::async(threads_executor_, std::move(sched_f));
+    // Call the CUDA function `f` and schedule an event after it.
+    //
+    // The event indicates the the function `f` has completed. The stream may be shared by mutliple
+    // host threads, the mutex is here to make sure no other CUDA calls or events are scheduled
+    // between the call to `f` and it's corresponding event.
+    {
+      std::lock_guard<hpx::lcos::local::mutex> lk(internal::get_cuda_mtx());
+      DLAF_CUDA_CALL(f(ts..., stream_));
+      ev.record(stream_);
+    }
+    return hpx::async(threads_executor_, [e = std::move(ev)] { e.query(); });
   }
 
 private:

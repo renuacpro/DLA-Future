@@ -5,16 +5,19 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
-#include "dlaf/cuda/executor.h"
+#include "dlaf/cublas/executor.h"
+#include "dlaf/cublas/pool.h"
 #include "dlaf/cuda/pool.h"
 
+// An executor defined on a single GPU.
+//
 int hpx_main(boost::program_options::variables_map&) {
   constexpr int device = 0;
   constexpr int num_streams = 2;
-  dlaf::cublas_pool pool(device, num_streams);
+  dlaf::cuda::pool cuda_pool(device, num_streams);
+  dlaf::cublas::pool cublas_pool(cuda_pool);
 
-  hpx::threads::executors::pool_executor threads_exec("default");
-  dlaf::cublas_executor exec(pool, CUBLAS_POINTER_MODE_HOST, std::move(threads_exec));
+  dlaf::cublas::executor exec(cublas_pool, CUBLAS_POINTER_MODE_HOST);
 
   constexpr int n = 10000;
   constexpr int incx = 0;
