@@ -22,17 +22,23 @@ int hpx_main(boost::program_options::variables_map&) {
   constexpr int n = 10000;
   constexpr int incx = 0;
   constexpr int incy = 0;
+  constexpr double alpha = 2.0;
 
   // Initialize buffers on the device
   thrust::device_vector<double> x = thrust::host_vector<double>(n, 4.0);
   thrust::device_vector<double> y = thrust::host_vector<double>(n, 2.0);
 
-  double result;
+  // https://docs.nvidia.com/cuda/cublas/index.html#cublas-lt-t-gt-axpy
   hpx::future<void> fut =
-      exec.async_execute(cublasDdot, n, x.data().get(), incx, y.data().get(), incy, &result);
+      exec.async_execute(cublasDaxpy, n, &alpha, x.data().get(), incx, y.data().get(), incy);
 
-  fut.get();
-  std::cout << "result : " << result << std::endl;
+  thrust::host_vector<double> y_h = y;
+
+  double sum_of_elems = 0;
+  for (double e : y_h)
+    sum_of_elems += e;
+
+  std::cout << "result : " << sum_of_elems << std::endl;
 
   return hpx::finalize();
 }
