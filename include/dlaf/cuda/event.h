@@ -1,3 +1,17 @@
+//
+// Distributed Linear Algebra with Future (DLAF)
+//
+// Copyright (c) 2018-2019, ETH Zurich
+// All rights reserved.
+//
+// Please, refer to the LICENSE file in the root directory.
+// SPDX-License-Identifier: BSD-3-Clause
+//
+
+#pragma once
+
+/// @file
+
 #include <cuda_runtime.h>
 
 #include <hpx/modules/execution_base.hpp>
@@ -22,7 +36,6 @@ public:
   }
 
   Event(const Event&) = delete;
-
   Event& operator=(const Event&) = delete;
 
   Event& operator=(Event&& e) noexcept {
