@@ -24,16 +24,18 @@ int hpx_main(boost::program_options::variables_map&) {
   thrust::device_vector<double> y = thrust::host_vector<double>(n, 2.0);
 
   // https://docs.nvidia.com/cuda/cublas/index.html#cublas-lt-t-gt-axpy
-  hpx::future<void> fut =
-      exec.async_execute(cublasDaxpy, n, &alpha, x.data().get(), incx, y.data().get(), incy);
 
-  thrust::host_vector<double> y_h = y;
+  exec.async_execute(cublasDaxpy, n, &alpha, x.data().get(), incx, y.data().get(), incy)
+      .then([&y](hpx::future<void>) {
+        // Note: This doesn't lead to a race condition becuase this execute after the `cublasDaxpy()`.
+        thrust::host_vector<double> y_h = y;
+        double sum_of_elems = 0;
+        for (double e : y_h)
+          sum_of_elems += e;
 
-  double sum_of_elems = 0;
-  for (double e : y_h)
-    sum_of_elems += e;
-
-  std::cout << "result : " << sum_of_elems << std::endl;
+        std::cout << "result : " << sum_of_elems << std::endl;
+      })
+      .get();
 
   return hpx::finalize();
 }
