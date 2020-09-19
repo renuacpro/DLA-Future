@@ -49,15 +49,51 @@ inline int num_devices() noexcept {
 
 namespace internal {
 
-struct cuda_stream_wrapper {
-  cudaStream_t stream;
-  cuda_stream_wrapper() = default;
-  cuda_stream_wrapper(int device) noexcept {
+// This class works around the fact std::shared_ptr doesn't support raw arrays in C++14.
+//
+class streams_array {
+  cudaStream_t* arr_;
+  int num_streams_;
+
+public:
+  streams_array(int device, int num_streams) noexcept
+      : arr_(new cudaStream_t[num_streams]), num_streams_(num_streams) {
     DLAF_CUDA_CALL(cudaSetDevice(device));
-    DLAF_CUDA_CALL(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+    for (int i = 0; i < num_streams; ++i) {
+      DLAF_CUDA_CALL(cudaStreamCreateWithFlags(&(arr_[i]), cudaStreamNonBlocking));
+    }
   }
-  ~cuda_stream_wrapper() {
-    DLAF_CUDA_CALL(cudaStreamDestroy(stream));
+
+  streams_array& operator=(streams_array&& o) noexcept {
+    arr_ = o.arr_;
+    num_streams_ = o.num_streams_;
+    o.arr_ = nullptr;
+    return *this;
+  }
+
+  streams_array(streams_array&& o) noexcept {
+    *this = std::move(o);
+  }
+
+  streams_array(const streams_array&) = delete;
+
+  streams_array& operator=(const streams_array&) = delete;
+
+  ~streams_array() {
+    if (arr_ == nullptr) {
+      for (int i = 0; i < num_streams_; ++i) {
+        DLAF_CUDA_CALL(cudaStreamDestroy(arr_[i]));
+      }
+    }
+    delete[] arr_;
+  }
+
+  cudaStream_t operator[](int i) const noexcept {
+    return arr_[i];
+  }
+
+  int size() const noexcept {
+    return num_streams_;
   }
 };
 
@@ -67,11 +103,9 @@ struct cuda_stream_wrapper {
 ///
 /// Note: The streams are rotated in Round-robin.
 class executor {
-  using streams_arr_t = std::vector<internal::cuda_stream_wrapper>;
-
 protected:
   int device_;
-  std::shared_ptr<streams_arr_t> streams_ptr_;
+  std::shared_ptr<internal::streams_array> streams_ptr_;
   hpx::threads::executors::pool_executor threads_executor_;
   int curr_stream_idx_;
 
@@ -80,8 +114,8 @@ public:
   using execution_category = hpx::parallel::execution::parallel_execution_tag;
 
   executor(int device, int num_streams)
-      : device_(device), streams_ptr_(std::make_shared<streams_arr_t>(num_streams, device)),
-        threads_executor_("default", hpx::threads::thread_priority_high) {}
+      : device_(device), streams_ptr_(std::make_shared<internal::streams_array>(device, num_streams)),
+        threads_executor_("default", hpx::threads::thread_priority_high), curr_stream_idx_(0) {}
 
   bool operator==(executor const& rhs) const noexcept {
     return streams_ptr_ == rhs.streams_ptr_ && threads_executor_ == rhs.threads_executor_;
@@ -130,7 +164,7 @@ public:
     // between the call to `f` and it's corresponding event.
     {
       std::lock_guard<hpx::lcos::local::mutex> lk(internal::get_cuda_mtx());
-      cudaStream_t stream = (*streams_ptr_)[curr_stream_idx_].stream;
+      cudaStream_t stream = (*streams_ptr_)[curr_stream_idx_];
       DLAF_CUDA_CALL(f(ts..., stream));
       ev.record(stream);
       curr_stream_idx_ = (curr_stream_idx_ + 1) % streams_ptr_->size();

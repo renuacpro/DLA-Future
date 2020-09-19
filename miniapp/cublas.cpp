@@ -15,8 +15,8 @@ int hpx_main(boost::program_options::variables_map&) {
   dlaf::cublas::executor exec(device, num_streams, CUBLAS_POINTER_MODE_HOST);
 
   constexpr int n = 10000;
-  constexpr int incx = 0;
-  constexpr int incy = 0;
+  constexpr int incx = 1;
+  constexpr int incy = 1;
   constexpr double alpha = 2.0;
 
   // Initialize buffers on the device

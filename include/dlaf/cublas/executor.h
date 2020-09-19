@@ -121,7 +121,7 @@ public:
     // between the call to `f` and it's corresponding event.
     {
       std::lock_guard<hpx::lcos::local::mutex> lk(cuda::internal::get_cuda_mtx());
-      cudaStream_t stream = (*base::streams_ptr_)[base::curr_stream_idx_].stream;
+      cudaStream_t stream = (*base::streams_ptr_)[base::curr_stream_idx_];
       cublasHandle_t handle = handler_ptr_->handle;
       DLAF_CUBLAS_CALL(cublasSetStream(handle, stream));
       DLAF_CUBLAS_CALL(cublasSetPointerMode(handle, cublas_ptr_mode_));
