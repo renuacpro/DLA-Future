@@ -80,10 +80,11 @@ public:
   streams_array& operator=(const streams_array&) = delete;
 
   ~streams_array() {
-    if (arr_ == nullptr) {
-      for (int i = 0; i < num_streams_; ++i) {
-        DLAF_CUDA_CALL(cudaStreamDestroy(arr_[i]));
-      }
+    if (arr_ == nullptr)
+      return;
+
+    for (int i = 0; i < num_streams_; ++i) {
+      DLAF_CUDA_CALL(cudaStreamDestroy(arr_[i]));
     }
     delete[] arr_;
   }
