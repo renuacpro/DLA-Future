@@ -316,53 +316,29 @@ void Cholesky<Backend::MC, Device::CPU, T>::call_L(comm::CommunicatorGrid grid,
     }
 
     // Iterate over the diagonal of the trailing matrix
-    // std::vector<std::vector<SizeType>> recv_bindices_map(distr.commGridSize().rows());
-    // for (SizeType j = k + 1; j < nrtile; ++j) {
-    //  GlobalTileIndex jj_idx(j, j);
-    //  comm::Index2D jj_rank = mat_a.rankGlobalTile(jj_idx);
-
-    //  std::vector<SizeType>& recv_bindices = recv_bindices_map[jj_rank.row()];
-
-    //  // Broadcast the jk-tile along the j-th column and update the jj-tile
-    //  if (this_rank == jj_rank) {
-    //    pool_executor trailing_matrix_executor = (j == k + 1) ? executor_hp : executor_normal;
-    //    herk_trailing_diag_tile(trailing_matrix_executor, panel[j], mat_a(jj_idx));
-    //    bindices.push_back(j);
-    //    if (bindices.size() == ntiles_batch || distr.isLastDiagTile(jj_rank, j)) {
-    //      // if (bindices.size() == ntiles_batch) {
-    //      send_batch(executor_hp, mpi_col_task_chain, distr, k, bindices, panel);
-    //    }
-    //  }
-    //  else if (this_rank.col() == jj_rank.col()) {
-    //    recv_bindices.push_back(j);
-    //    if (recv_bindices.size() == ntiles_batch || distr.isLastDiagTile(jj_rank, j)) {
-    //      // if (recv_bindices.size() == ntiles_batch) {
-    //      recv_batch(executor_hp, mpi_col_task_chain, jj_rank.row(), distr, k, recv_bindices, panel);
-    //    }
-    //  }
-    //}
-    // if (!bindices.empty()) {
-    //  send_batch(executor_hp, mpi_col_task_chain, distr, k, bindices, panel);
-    //}
-    // for (int r = 0; r < recv_bindices_map.size(); ++r) {
-    //  auto& recv_bindices = recv_bindices_map[r];
-    //  if (!recv_bindices.empty()) {
-    //    recv_batch(executor_hp, mpi_col_task_chain, r, distr, k, recv_bindices, panel);
-    //  }
-    //}
-
+    std::vector<std::vector<SizeType>> recv_bindices_map(distr.commGridSize().rows());
     for (SizeType j = k + 1; j < nrtile; ++j) {
-      pool_executor trailing_matrix_executor = (j == k + 1) ? executor_hp : executor_normal;
       GlobalTileIndex jj_idx(j, j);
       comm::Index2D jj_rank = mat_a.rankGlobalTile(jj_idx);
+
+      std::vector<SizeType>& recv_bindices = recv_bindices_map[jj_rank.row()];
+
+      // Broadcast the jk-tile along the j-th column and update the jj-tile
       if (this_rank == jj_rank) {
-        comm::bcast_send_tile(executor_hp, mpi_col_task_chain, panel[j]);
+        pool_executor trailing_matrix_executor = (j == k + 1) ? executor_hp : executor_normal;
         herk_trailing_diag_tile(trailing_matrix_executor, panel[j], mat_a(jj_idx));
+        bindices.push_back(j);
+        if (bindices.size() == ntiles_batch || distr.isLastDiagTile(jj_rank, j)) {
+          // if (bindices.size() == ntiles_batch) {
+          send_batch(executor_hp, mpi_col_task_chain, distr, k, bindices, panel);
+        }
       }
       else if (this_rank.col() == jj_rank.col()) {
-        GlobalTileIndex jk_idx(j, k);
-        panel[j] = comm::bcast_recv_tile<T>(executor_hp, mpi_col_task_chain, mat_a.tileSize(jk_idx),
-                                            jj_rank.row());
+        recv_bindices.push_back(j);
+        if (recv_bindices.size() == ntiles_batch || distr.isLastDiagTile(jj_rank, j)) {
+          // if (recv_bindices.size() == ntiles_batch) {
+          recv_batch(executor_hp, mpi_col_task_chain, jj_rank.row(), distr, k, recv_bindices, panel);
+        }
       }
     }
 
