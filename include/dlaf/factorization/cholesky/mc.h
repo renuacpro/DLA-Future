@@ -16,6 +16,7 @@
 #include <hpx/include/util.hpp>
 #include <hpx/util/annotated_function.hpp>
 
+#include <algorithm>
 #include <limits>
 #include <sstream>
 #include <unordered_map>
@@ -252,11 +253,7 @@ void Cholesky<Backend::MC, Device::CPU, T>::call_L(comm::CommunicatorGrid grid,
   using hpx::threads::thread_priority_high;
   using hpx::threads::thread_priority_default;
   using comm::internal::mpi_pool_exists;
-
   using ConstTile_t = matrix::Tile<const T, Device::CPU>;
-
-  // TODO: set a different value
-  constexpr int ntiles_batch = 4;
 
   // Set up executor on the default queue with high priority.
   pool_executor executor_hp("default", thread_priority_high);
@@ -272,6 +269,13 @@ void Cholesky<Backend::MC, Device::CPU, T>::call_L(comm::CommunicatorGrid grid,
   const matrix::Distribution& distr = mat_a.distribution();
   SizeType nrtile = mat_a.nrTiles().cols();
   comm::Index2D this_rank = grid.rank();
+
+  // The batch size is such that there are at most close to `ncomms` number of outstanding
+  // non-blockibg communications issued at any given time.
+  //
+  // Note: the batch size should be the same across processes to avoid weird edge cases.
+  constexpr int ncomms = 15;
+  int ntiles_batch = std::max(SizeType(1), nrtile / (grid.size().rows() * ncomms));
 
   for (SizeType k = 0; k < nrtile; ++k) {
     // Create a placeholder that will store the shared futures representing the panel
