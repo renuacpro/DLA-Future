@@ -32,8 +32,8 @@ template <class T, Device D>
 void send(const matrix::Tile<const T, D>& tile, IndexT_MPI receiver, IndexT_MPI tag,
           common::PromiseGuard<Communicator> pcomm, MPI_Request* req) {
   auto msg = comm::make_message(common::make_data(tile));
-  DLAF_MPI_CALL(MPI_Isend(const_cast<T*>(msg.data()), msg.count(), msg.mpi_type(), receiver, tag, pcomm.ref(),
-            req));
+  DLAF_MPI_CALL(MPI_Isend(const_cast<T*>(msg.data()), msg.count(), msg.mpi_type(), receiver, tag,
+                          pcomm.ref(), req));
 }
 
 DLAF_MAKE_CALLABLE_OBJECT(send);
@@ -67,8 +67,8 @@ hpx::future<matrix::Tile<const T, D>> scheduleRecvAlloc(
     hpx::future<common::PromiseGuard<comm::Communicator>> pcomm) {
   return internal::handleRecvTile<D>(
       hpx::dataflow(std::forward<Executor>(ex),
-                    hpx::unwrapping(recvAlloc<T, CommunicationDevice<D>::value>), tile_size,
-                    sender, tag, std::move(pcomm)));
+                    hpx::unwrapping(recvAlloc<T, CommunicationDevice<D>::value>), tile_size, sender, tag,
+                    std::move(pcomm)));
 }
 }
 }

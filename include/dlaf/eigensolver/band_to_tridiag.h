@@ -28,7 +28,8 @@ namespace eigensolver {
 /// @pre b is a divisor of mat_a.blockSize().cols(),
 /// @pre mat_a is not distributed.
 template <Backend backend, Device device, class T>
-auto bandToTridiag(blas::Uplo uplo, SizeType band_size, Matrix<T, device>& mat_a) {
+Matrix<BaseType<T>, device> bandToTridiag(blas::Uplo uplo, SizeType band_size,
+                                          Matrix<T, device>& mat_a) {
   DLAF_ASSERT(matrix::square_size(mat_a), mat_a);
   DLAF_ASSERT(matrix::square_blocksize(mat_a), mat_a);
   DLAF_ASSERT(matrix::local_matrix(mat_a), mat_a);
@@ -45,14 +46,12 @@ auto bandToTridiag(blas::Uplo uplo, SizeType band_size, Matrix<T, device>& mat_a
       break;
   }
 
-  using dlaf::common::internal::vector;
-  using RetVec = vector<hpx::shared_future<vector<BaseType<T>>>>;
-  return std::tuple<RetVec, RetVec>();
+  return {{0, 0}, {1, 1}};
 }
 
 template <Backend backend, Device device, class T>
-auto bandToTridiag(comm::CommunicatorGrid grid, blas::Uplo uplo, SizeType band_size,
-                   Matrix<T, device>& mat_a) {
+Matrix<BaseType<T>, device> bandToTridiag(comm::CommunicatorGrid grid, blas::Uplo uplo,
+                                          SizeType band_size, Matrix<T, device>& mat_a) {
   DLAF_ASSERT(matrix::square_size(mat_a), mat_a);
   DLAF_ASSERT(matrix::square_blocksize(mat_a), mat_a);
   DLAF_ASSERT(matrix::equal_process_grid(mat_a, grid), mat_a, grid);
@@ -73,9 +72,7 @@ auto bandToTridiag(comm::CommunicatorGrid grid, blas::Uplo uplo, SizeType band_s
       break;
   }
 
-  using dlaf::common::internal::vector;
-  using RetVec = vector<hpx::shared_future<vector<BaseType<T>>>>;
-  return std::tuple<RetVec, RetVec>();
+  return {{0, 0}, {1, 1}};
 }
 
 }

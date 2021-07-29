@@ -78,7 +78,7 @@ GTEST_API_ int main(int argc, char** argv) {
   if (rank == 1) {
     bool flag = 1;
     std::cout << getpid() << std::endl;
-    //while (flag);
+    // while (flag);
   }
 
   // Gets hold of the event listener list.

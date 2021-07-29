@@ -58,7 +58,8 @@ void applyHHLeftRightHerm(const SizeType n, const T tau, const T* v, T* a, const
 }
 
 template <class T>
-void applyHHLeft(const SizeType m, const SizeType n, const T tau, const T* v, T* a, const SizeType lda, T* w) {
+void applyHHLeft(const SizeType m, const SizeType n, const T tau, const T* v, T* a, const SizeType lda,
+                 T* w) {
   DLAF_ASSERT_HEAVY(m >= 0, m);
   DLAF_ASSERT_HEAVY(n >= 0, n);
 
@@ -70,7 +71,8 @@ void applyHHLeft(const SizeType m, const SizeType n, const T tau, const T* v, T*
 }
 
 template <class T>
-void applyHHRight(const SizeType m, const SizeType n, const T tau, const T* v, T* a, const SizeType lda, T* w) {
+void applyHHRight(const SizeType m, const SizeType n, const T tau, const T* v, T* a, const SizeType lda,
+                  T* w) {
   DLAF_ASSERT_HEAVY(m >= 0, m);
   DLAF_ASSERT_HEAVY(n >= 0, n);
 
@@ -83,8 +85,8 @@ void applyHHRight(const SizeType m, const SizeType n, const T tau, const T* v, T
 
 // split versions of the previous operations
 template <class T>
-void applyHHLeftRightHerm(const SizeType n1, const SizeType n2, const T tau, const T* v, T* a1, T* a2, const SizeType lda,
-                          T* w) {
+void applyHHLeftRightHerm(const SizeType n1, const SizeType n2, const T tau, const T* v, T* a1, T* a2,
+                          const SizeType lda, T* w) {
   DLAF_ASSERT_HEAVY(n1 >= 0, n1);
   DLAF_ASSERT_HEAVY(n2 >= 0, n2);
   const auto n = n1 + n2;
@@ -108,15 +110,15 @@ void applyHHLeftRightHerm(const SizeType n1, const SizeType n2, const T tau, con
 }
 
 template <class T>
-void applyHHLeft(const SizeType m, const SizeType n1, const SizeType n2, const T tau, const T* v, T* a1, T* a2, const SizeType lda,
-                 T* w) {
+void applyHHLeft(const SizeType m, const SizeType n1, const SizeType n2, const T tau, const T* v, T* a1,
+                 T* a2, const SizeType lda, T* w) {
   applyHHLeft(m, n1, tau, v, a1, lda, w);
   applyHHLeft(m, n2, tau, v, a2, lda, w);
 }
 
 template <class T>
-void applyHHRight(const SizeType m, const SizeType n1, const SizeType n2, const T tau, const T* v, T* a1, T* a2, const SizeType lda,
-                  T* w) {
+void applyHHRight(const SizeType m, const SizeType n1, const SizeType n2, const T tau, const T* v, T* a1,
+                  T* a2, const SizeType lda, T* w) {
   DLAF_ASSERT_HEAVY(m >= 0, m);
   DLAF_ASSERT_HEAVY(n1 >= 0, n1);
   DLAF_ASSERT_HEAVY(n2 >= 0, n2);
@@ -221,10 +223,8 @@ public:
   }
 
   SizeType nextSplit(SizeType j) {
-    // TODO
-    return 10;
+    return (block_size_ + band_size_) - j % (block_size_ + band_size_);
   }
-
 
 private:
   SizeType memoryIndex(SizeType j) {
@@ -247,10 +247,6 @@ private:
 
   memory::MemoryView<T, Device::CPU> mem_;
 };
-
-// template<class T>
-// T* BandBlock<T, true>::ptr(SizeType offset, SizeType j) {
-//}
 
 template <class T>
 using BandBlockDist = BandBlock<T, true>;
@@ -330,8 +326,7 @@ protected:
 template <class T>
 class SweepWorkerDist : private SweepWorker<T> {
 public:
-  SweepWorkerDist(SizeType size, SizeType band_size)
-    :SweepWorker<T>(size, band_size) {}
+  SweepWorkerDist(SizeType size, SizeType band_size) : SweepWorker<T>(size, band_size) {}
 
   void startSweep(SizeType sweep, BandBlockDist<T>& a) {
     this->startSweepInternal(sweep, a);
@@ -380,7 +375,40 @@ private:
 };
 
 template <class T>
+class vector2D {
+public:
+  vector2D(SizeType nr, SizeType size) : data_(nr * size), ld_(size) {}
+
+  T& operator()(SizeType block, SizeType index) noexcept {
+    return data_[id(block, index)];
+  }
+  const T& operator()(SizeType block, SizeType index) const noexcept {
+    return data_[id(block, index)];
+  }
+
+private:
+  SizeType id(SizeType block, SizeType index) {
+    DLAF_ASSERT_HEAVY(index < ld_, index, ld_);
+    DLAF_ASSERT_HEAVY(block < data_.size() / ld_, block, data_.size(), ld_);
+    return ld_ * block + index;
+  }
+
+  common::internal::vector<T> data_;
+  SizeType ld_;
+};
+
+template <class T>
 struct BandToTridiag<Backend::MC, Device::CPU, T> {
+  static SizeType nrSweeps(SizeType size) {
+    // Complex needs an extra sweep to have a real tridiagonal matrix.
+    return std::is_same<T, ComplexType<T>>::value ? size - 1 : size - 2;
+  }
+
+  static SizeType nrStepsForSweep(SizeType sweep, SizeType size, SizeType band) {
+    // Last Complex sweep should be handled differently.
+    return sweep == size - 2 ? 1 : util::ceilDiv(size - sweep - 2, band);
+  }
+
   // Local implementation of bandToTridiag.
   static auto call_L(const SizeType b, Matrix<T, Device::CPU>& mat_a) {
     using MatrixType = Matrix<T, Device::CPU>;
@@ -402,11 +430,7 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
     // Need share pointer to keep the allocation until all the tasks are executed.
     auto a_ws = std::make_shared<BandBlock<T>>(size, b);
 
-    // TODO: define how to output the diags.
-    vector<hpx::shared_future<vector<BaseType<T>>>> d;
-    d.reserve(nrtile);
-    vector<hpx::shared_future<vector<BaseType<T>>>> e;
-    e.reserve(nrtile);
+    Matrix<BaseType<T>, Device::CPU> mat_trid({2, size}, {2, nb});
 
     const auto max_deps_size = ceilDiv(size, b);
     vector<hpx::shared_future<void>> deps;
@@ -459,35 +483,29 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
       return hpx::make_tuple(std::move(worker), true);
     };
 
-    auto copy_tridiag = [executor_hp, size, nb, a_ws, &d, &e](SizeType sweep,
-                                                              hpx::shared_future<void> dep) {
-      auto copy_tridiag_task = [a_ws](SizeType start, SizeType n_d, SizeType n_e) {
-        vector<BaseType<T>> db(n_d);
-        vector<BaseType<T>> eb(n_e);
-
+    auto copy_tridiag = [executor_hp, a_ws, &mat_trid](SizeType sweep, hpx::shared_future<void> dep) {
+      auto copy_tridiag_task = [a_ws](SizeType start, SizeType n_d, SizeType n_e, auto tile_t) {
         auto inc = a_ws->ld() + 1;
         if (std::is_same<T, ComplexType<T>>::value)
           // skip imaginary part if Complex.
           inc *= 2;
 
-        blas::copy(n_d, (BaseType<T>*) a_ws->ptr(0, start), inc, db.data(), 1);
-        blas::copy(n_e, (BaseType<T>*) a_ws->ptr(1, start), inc, eb.data(), 1);
-
-        return hpx::make_tuple(db, eb);
+        blas::copy(n_d, (BaseType<T>*) a_ws->ptr(0, start), inc, tile_t.ptr({0, 0}), tile_t.ld());
+        blas::copy(n_e, (BaseType<T>*) a_ws->ptr(1, start), inc, tile_t.ptr({1, 0}), tile_t.ld());
       };
 
+      const auto size = mat_trid.size().cols();
+      const auto nb = mat_trid.blockSize().cols();
       if (sweep % nb == nb - 1 || sweep == size - 1) {
-        const auto start = sweep / nb * nb;
-        auto ret = hpx::split_future(hpx::dataflow(executor_hp, unwrapping(copy_tridiag_task), start,
-                                                   std::min(nb, size - start),
-                                                   std::min(nb, size - 1 - start), dep));
-
-        d.push_back(std::move(hpx::get<0>(ret)));
-        e.push_back(std::move(hpx::get<1>(ret)));
+        const auto tile_index = sweep / nb;
+        std::cout << tile_index << std::endl;
+        const auto start = tile_index * nb;
+        hpx::dataflow(executor_hp, unwrapping(copy_tridiag_task), start, std::min(nb, size - start),
+                      std::min(nb, size - 1 - start), mat_trid(GlobalTileIndex{0, tile_index}), dep);
       }
     };
 
-    const auto sweeps = std::is_same<T, ComplexType<T>>::value ? size - 1 : size - 2;
+    const auto sweeps = nrSweeps(size);
     for (SizeType sweep = 0; sweep < sweeps; ++sweep) {
       // Create the first max_workers workers and then reuse them.
       auto worker = sweep < max_workers ? hpx::make_ready_future(SweepWorker<T>(size, b))
@@ -498,7 +516,7 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
       worker = std::move(hpx::get<0>(ret));
       copy_tridiag(sweep, hpx::future<void>(std::move(hpx::get<1>(ret))));
 
-      const auto steps = sweep == size - 2 ? 1 : ceilDiv(size - sweep - 2, b);
+      const auto steps = nrStepsForSweep(sweep, size, b);
       for (SizeType step = 0; step < steps; ++step) {
         auto dep_index = std::min(step + 1, deps.size() - 1);
 
@@ -528,8 +546,7 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
     //   std::cout << std::endl;
     // }
 
-    // TODO: define how to output the diags.
-    return std::make_tuple(d, e);
+    return mat_trid;
   }
 
   // Distributed implementation of bandToTridiag.
@@ -563,31 +580,24 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
 
     SizeType tiles_per_block = 1;
     matrix::Distribution dist({1, size}, {1, nb * tiles_per_block}, {1, ranks}, {0, rank}, {0, 0});
+    SizeType nb_band = dist.blockSize().cols();
 
-    // Need share pointer to keep the allocation until all the tasks are executed.
+    // Need shared pointer to keep the allocation until all the tasks are executed.
     vector<std::shared_ptr<BandBlock<T, true>>> a_ws;
     for (SizeType i = 0; i < dist.localNrTiles().cols(); ++i) {
-      a_ws.emplace_back(
-          std::make_shared<BandBlock<T, true>>(size, b, rank + i * ranks, nb * tiles_per_block));
+      a_ws.emplace_back(std::make_shared<BandBlock<T, true>>(size, b, rank + i * ranks, nb_band));
     }
 
-    // TODO: define how to output the diags.
-    vector<hpx::shared_future<vector<BaseType<T>>>> d;
-    d.reserve(nrtile);
-    vector<hpx::shared_future<vector<BaseType<T>>>> e;
-    e.reserve(nrtile);
+    Matrix<BaseType<T>, Device::CPU> mat_trid({2, size}, {2, nb});
 
-    const auto max_deps_size = ceilDiv(dist.localSize().cols(), b);
-    vector<hpx::shared_future<void>> deps;
-    deps.reserve(max_deps_size);
+    vector2D<hpx::shared_future<void>> deps(dist.localNrTiles().cols(), nb_band / b + 1);
 
-    auto copy_diag = [](std::shared_ptr<BandBlock<T, true>> a_block, SizeType j, const ConstTileType& source) { (a_block)->copyDiag(j, source); };
+    auto copy_diag = [](std::shared_ptr<BandBlock<T, true>> a_block, SizeType j,
+                        const ConstTileType& source) { (a_block)->copyDiag(j, source); };
 
-    auto copy_offdiag = [](std::shared_ptr<BandBlock<T, true>> a_block, SizeType j, const ConstTileType& source) {
-      a_block->copyOffdiag(j, source);
-    };
+    auto copy_offdiag = [](std::shared_ptr<BandBlock<T, true>> a_block, SizeType j,
+                           const ConstTileType& source) { a_block->copyOffdiag(j, source); };
 
-    // TODO send receive and distribution
     // Copy the band matrix
     for (SizeType k = 0; k < nrtile; ++k) {
       const auto id_block = k / tiles_per_block;
@@ -595,35 +605,37 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
       const GlobalTileIndex index_offdiag{k + 1, k};
       const auto rank_block = dist.rankGlobalTile<Coord::Col>(id_block);
       const auto rank_diag = grid.rankFullCommunicator(dist_a.rankGlobalTile(index_diag));
-      const auto rank_offdiag = (k == nrtile - 1 ? -1 : grid.rankFullCommunicator(dist_a.rankGlobalTile(index_offdiag)));
+      const auto rank_offdiag =
+          (k == nrtile - 1 ? -1 : grid.rankFullCommunicator(dist_a.rankGlobalTile(index_offdiag)));
 
       if (rank == rank_block) {
-        auto diag_tile = (rank == rank_diag
-                              ? mat_a.read(index_diag)
-                              : comm::scheduleRecvAlloc<T, Device::CPU>(executor_mpi, dist_a.tileSize(index_diag), rank_diag, 0, mpi_task_chain()));
+        auto diag_tile =
+            (rank == rank_diag
+                 ? mat_a.read(index_diag)
+                 : comm::scheduleRecvAlloc<T, Device::CPU>(executor_mpi, dist_a.tileSize(index_diag),
+                                                           rank_diag, 0, mpi_task_chain()));
 
         const auto id_block_local = dist.localTileFromGlobalTile<Coord::Col>(id_block);
 
         hpx::shared_future<void> sf =
             hpx::dataflow(executor_hp, unwrapping(copy_diag), a_ws[id_block_local], k * nb, diag_tile);
 
+        const auto offset_dep = k % tiles_per_block * nb / b;
+        for (int i = 0; i < nb / b - 1; ++i) {
+          deps(id_block_local, offset_dep + i) = std::move(sf);
+        }
         if (k < nrtile - 1) {
-          for (int i = 0; i < nb / b - 1; ++i) {
-            deps.push_back(sf);
-          }
           auto offdiag_tile =
               (rank == rank_offdiag
                    ? mat_a.read(index_offdiag)
-                   : comm::scheduleRecvAlloc<T, Device::CPU>(executor_mpi, dist_a.tileSize(index_offdiag), rank_offdiag, 0, mpi_task_chain()));
+                   : comm::scheduleRecvAlloc<T, Device::CPU>(executor_mpi,
+                                                             dist_a.tileSize(index_offdiag),
+                                                             rank_offdiag, 0, mpi_task_chain()));
 
-          sf = hpx::dataflow(executor_hp, unwrapping(copy_offdiag), a_ws[id_block_local], k * nb, offdiag_tile, sf);
-          deps.push_back(sf);
+          sf = hpx::dataflow(executor_hp, unwrapping(copy_offdiag), a_ws[id_block_local], k * nb,
+                             offdiag_tile, sf);
         }
-        else {
-          while (deps.size() < max_deps_size) {
-            deps.push_back(sf);
-          }
-        }
+        deps(id_block_local, offset_dep + nb / b - 1) = std::move(sf);
       }
       else {
         if (rank == rank_diag) {
@@ -638,28 +650,29 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
     }
 
     // DEBUG:
-    hpx::wait_all(*((std::vector<hpx::shared_future<void>>*) &deps));
     for (SizeType i = 0; i < 2 * b; ++i) {
-       for (SizeType jj = 0; jj < dist.nrTiles().cols(); ++jj) {
-         for (SizeType j = 0; j < dist.tileSize(GlobalTileIndex{0, jj}).cols(); ++j) {
-           if (rank == dist.rankGlobalTile({0, jj}).col()){
-             std::cout << *a_ws[dist.localTileIndex({0, jj}).col()]->ptr(i, jj * dist.blockSize().cols() + j) << ", ";
-           }
-         }
-       }
-       std::cout << std::endl;
+      for (SizeType jj = 0; jj < dist.nrTiles().cols(); ++jj) {
+        for (SizeType j = 0; j < dist.tileSize(GlobalTileIndex{0, jj}).cols(); ++j) {
+          if (rank == dist.rankGlobalTile({0, jj}).col()) {
+            auto index = dist.localTileIndex({0, jj}).col();
+            deps(index, j / b).wait();
+            std::cout << *a_ws[index]->ptr(i, j) << ", ";
+          }
+        }
+      }
+      std::cout << std::endl;
     }
 
-    // Maximum block_size / (2b-1) sweeps per block can be executed in parallel.
-    const auto max_workers =
-        dist.localNrTiles().cols() * std::min(ceilDiv(dist.blockSize().cols(), 2 * b - 1), to_signed<SizeType>(get_num_threads("default")));
-    vector<hpx::future<SweepWorkerDist<T>>> workers(max_workers);
+    // Maximum block_size / (2b-1) sweeps per block can be executed in parallel + 1 communication buffer.
+    const auto workers_per_block = 1 + ceilDiv(dist.blockSize().cols(), 2 * b - 1);
+    vector2D<hpx::future<SweepWorkerDist<T>>> workers(dist.localNrTiles().cols(), workers_per_block);
 
-    auto init_sweep = [a_ws](std::shared_ptr<BandBlock<T, true>> a_block, SizeType sweep, SweepWorkerDist<T>&& worker) {
+    auto init_sweep = [](std::shared_ptr<BandBlock<T, true>> a_block, SizeType sweep,
+                         SweepWorkerDist<T>&& worker) {
       worker.startSweep(sweep, *a_block);
       return hpx::make_tuple(std::move(worker), true);
     };
-    auto cont_sweep = [a_ws](std::shared_ptr<BandBlock<T, true>> a_block, SweepWorkerDist<T>&& worker) {
+    auto cont_sweep = [](std::shared_ptr<BandBlock<T, true>> a_block, SweepWorkerDist<T>&& worker) {
       worker.doStep(*a_block);
       return hpx::make_tuple(std::move(worker), true);
     };
@@ -691,60 +704,66 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
         d.push_back(std::move(hpx::get<0>(ret)));
         e.push_back(std::move(hpx::get<1>(ret)));
       }
-    };
-    */
+    };*/
 
+    return mat_trid;
 
     // TODO send/recv "to left"
     // TODO deps
-    const auto sweeps = std::is_same<T, ComplexType<T>>::value ? size - 1 : size - 2;
+    const auto sweeps = nrSweeps(size);
     for (SizeType sweep = 0; sweep < sweeps; ++sweep) {
-      const auto steps = sweep == size - 2 ? 1 : ceilDiv(size - sweep - 2, b);
+      const auto steps = nrStepsForSweep(sweep, size, b);
+
       for (SizeType id_block = 0; id_block * dist.blockSize().cols() / b < steps; ++id_block) {
         const auto rank_block = dist.rankGlobalTile<Coord::Col>(id_block);
-        const auto id_worker = 0;
-        // Create the first max_workers workers and then reuse them.
-        auto worker = id_worker < max_workers ? hpx::make_ready_future(SweepWorkerDist<T>(size, b))
-            : std::move(workers[id_worker % max_workers]);
-
         if (rank == rank_block) {
+          const auto id_block_local = dist.localTileFromGlobalTile<Coord::Col>(id_block);
+          const auto id_worker = sweep % workers_per_block;
+          // Create the workers and then reuse them.
+          auto worker = sweep < workers_per_block ? hpx::make_ready_future(SweepWorkerDist<T>(size, b))
+                                                  : std::move(workers(id_block_local, id_worker));
+
           if (id_block == 0) {
-            auto ret =
-                hpx::split_future(hpx::dataflow(executor_hp, unwrapping(init_sweep), a_ws[0], sweep, worker, deps[0]));
+            auto ret = hpx::split_future(hpx::dataflow(executor_hp, unwrapping(init_sweep), a_ws[0],
+                                                       sweep, worker, deps(id_block_local, 0)));
             worker = std::move(hpx::get<0>(ret));
-            //copy_tridiag(sweep, hpx::future<void>(std::move(hpx::get<1>(ret))));
+            // copy_tridiag(sweep, hpx::future<void>(std::move(hpx::get<1>(ret))));
           }
           else {
             // TODO Recv worker
           }
 
-          // TODO
-          const auto steps = sweep == size - 2 ? 1 : ceilDiv(size - sweep - 2, b);
-          for (SizeType step = 0; step < steps; ++step) {
-            auto dep_index = std::min(step + 1, deps.size() - 1);
+          const auto steps_block = std::min(nb_band / b, steps - id_block * nb_band / b);
+          for (SizeType step = 0; step < steps_block; ++step) {
+            // last step dependency is the last dependency set in the previous sweep.
+            // TODO check (because of send/recv might need more cases).
+            auto dep_index =
+                std::min(step + 1, (nrStepsForSweep(sweep - 1, size, b) - 1) % (nb_band / b));
 
-            auto ret = hpx::split_future(
-                hpx::dataflow(executor_hp, unwrapping(cont_sweep), a_ws[id_block], worker, deps[dep_index]));
-            deps[step] = hpx::future<void>(std::move(hpx::get<1>(ret)));
+            auto ret =
+                hpx::split_future(hpx::dataflow(executor_hp, unwrapping(cont_sweep), a_ws[id_block],
+                                                worker, deps(id_block_local, dep_index)));
+            deps(id_block_local, step % (nb / b)) = hpx::future<void>(std::move(hpx::get<1>(ret)));
             worker = std::move(hpx::get<0>(ret));
           }
 
-          //if (id_block != last_block)
-            // TODO: send worker
-        }
-        // Move the Worker structure such that it can be reused in a later sweep.
-        workers[sweep % max_workers] = std::move(worker);
-      }
+          // if (id_block != last_block)
+          // TODO: send worker
 
-      // Shrink the dependency vector to only include the futures generated in this sweep.
-      deps.resize(steps);
+          // Move the Worker structure such that it can be reused in a later sweep.
+          workers(id_block_local, id_worker) = std::move(worker);
+        }
+      }
     }
 
     // copy the last elements of the diagonals
-    //if (!std::is_same<T, ComplexType<T>>::value) {
-    //  copy_tridiag(size - 2, deps[0]);
-    //}
-    //copy_tridiag(size - 1, deps[0]);
+    /*const auto rank_block = dist.rankGlobalTile<Coord::Col>(0);
+    if (rank == rank_block) {
+      if (!std::is_same<T, ComplexType<T>>::value) {
+        copy_tridiag(size - 2, deps[0]);
+      }
+      copy_tridiag(size - 1, deps[0]);
+    }*/
 
     // DEBUG:
     // deps[0].wait();
@@ -754,8 +773,8 @@ struct BandToTridiag<Backend::MC, Device::CPU, T> {
     //   std::cout << std::endl;
     // }
 
-    // TODO: define how to output the diags.
-    return std::make_tuple(d, e);
+    // TODO: bcast mat_trid.
+    return mat_trid;
   }
 };
 
