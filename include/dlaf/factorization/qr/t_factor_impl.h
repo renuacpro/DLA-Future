@@ -31,8 +31,8 @@
 #include "dlaf/types.h"
 #include "dlaf/util_matrix.h"
 
-#ifdef DLAF_WITH_CUDA
-#include "dlaf/cublas/api.h"
+#ifdef DLAF_WITH_GPU
+#include "dlaf/gpu/blas/api.h"
 #endif
 
 namespace dlaf::factorization::internal {
@@ -127,7 +127,7 @@ struct Helpers<Backend::MC, Device::CPU, T> {
   }
 };
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 template <class T>
 struct Helpers<Backend::GPU, Device::GPU, T> {
   static pika::future<matrix::Tile<T, Device::GPU>> set0(pika::future<matrix::Tile<T, Device::GPU>>& t) {

@@ -12,14 +12,14 @@
 
 /// @file
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 
 #include <cstddef>
 #include <memory>
 #include <utility>
 
-#include <cublas_v2.h>
-#include <cuda_runtime.h>
+#include "dlaf/gpu/api.h"
+#include "dlaf/gpu/solver/api.h"
 
 #include <pika/cuda.hpp>
 #include <pika/execution.hpp>
@@ -30,56 +30,57 @@
 #include <pika/type_traits.hpp>
 
 #include "dlaf/common/assert.h"
-#include "dlaf/cublas/error.h"
-#include "dlaf/cublas/handle_pool.h"
-#include "dlaf/cuda/error.h"
-#include "dlaf/cuda/executor.h"
+#include "dlaf/gpu/blas/executor.h"
+#include "dlaf/gpu/blas/handle_pool.h"
+#include "dlaf/gpu/error.h"
+#include "dlaf/gpu/solver/error.h"
+#include "dlaf/gpu/solver/handle_pool.h"
 
 namespace dlaf {
-namespace cublas {
+namespace cusolver {
 namespace internal {
-
 template <bool IsCallable, typename F, typename... Ts>
-struct isAsyncCublasCallableImpl : std::false_type {
+struct isAsyncCusolverCallableImpl : std::false_type {
   struct dummy_type {};
   using return_type = dummy_type;
 };
 
 template <typename F, typename... Ts>
-struct isAsyncCublasCallableImpl<true, F, Ts...> : std::true_type {
-  using return_type = pika::future<typename pika::invoke_result<F, cublasHandle_t&, Ts...>::type>;
+struct isAsyncCusolverCallableImpl<true, F, Ts...> : std::true_type {
+  using return_type = pika::future<typename pika::invoke_result<F, cusolverDnHandle_t&, Ts...>::type>;
 };
 
 template <typename F, typename... Ts>
-struct isAsyncCublasCallable
-    : isAsyncCublasCallableImpl<pika::is_invocable_v<F, cublasHandle_t&, Ts...>, F, Ts...> {};
+struct isAsyncCusolverCallable
+    : isAsyncCusolverCallableImpl<pika::is_invocable_v<F, cusolverDnHandle_t&, Ts...>, F, Ts...> {};
 
 template <typename F, typename... Ts>
-inline constexpr bool isAsyncCublasCallable_v = isAsyncCublasCallable<F, Ts...>::value;
+inline constexpr bool isAsyncCusolverCallable_v = isAsyncCusolverCallable<F, Ts...>::value;
 
 template <typename F, typename Futures>
-struct isDataflowCublasCallable
+struct isDataflowCusolverCallable
     : pika::is_invocable<pika::util::functional::invoke_fused, F,
-                         decltype(pika::tuple_cat(pika::tie(std::declval<cublasHandle_t&>()),
+                         decltype(pika::tuple_cat(pika::tie(std::declval<cusolverDnHandle_t&>()),
                                                   std::declval<Futures>()))> {};
+
 template <typename F, typename Futures>
-inline constexpr bool isDataflowCublasCallable_v = isDataflowCublasCallable<F, Futures>::value;
+inline constexpr bool isDataflowCusolverCallable_v = isDataflowCusolverCallable<F, Futures>::value;
 }
 
-/// An executor for cuBLAS functions. Uses handles and streams from the given
-/// HandlePool and StreamPool. A cuBLAS function is defined as any function that
-/// takes a cuBLAS handle as the first argument. The executor inserts a cuBLAS
-/// handle into the argument list, i.e. a handle should not be provided at the
-/// apply/async/dataflow invocation site.
-class Executor : public cuda::Executor {
-  using base = cuda::Executor;
-
-protected:
+/// An executor for cuSOLVER functions. Uses handles and streams from the given
+/// HandlePool and StreamPool. A cuSOLVER function is defined as any function
+/// that takes a cuSOLVER handle as the first argument. The executor inserts a
+/// cuSOLVER handle into the argument list, i.e. a handle should not be
+/// provided at the apply/async/dataflow invocation site.
+class Executor : public cublas::Executor {
+  using base = cublas::Executor;
   HandlePool handle_pool_;
 
 public:
-  Executor(cuda::StreamPool stream_pool, HandlePool handle_pool)
-      : base(stream_pool), handle_pool_(handle_pool) {
+  Executor(cuda::StreamPool stream_pool, cublas::HandlePool cublas_handle_pool, HandlePool handle_pool)
+      : base(stream_pool, cublas_handle_pool), handle_pool_(handle_pool) {
+    DLAF_ASSERT(base::handle_pool_.getDevice() == handle_pool_.getDevice(),
+                base::handle_pool_.getDevice(), handle_pool_.getDevice());
     DLAF_ASSERT(stream_pool_.getDevice() == handle_pool_.getDevice(), stream_pool_.getDevice(),
                 handle_pool_.getDevice());
   }
@@ -97,11 +98,11 @@ public:
   }
 
   template <typename F, typename... Ts>
-  std::enable_if_t<internal::isAsyncCublasCallable_v<F, Ts...>,
-                   typename internal::isAsyncCublasCallable<F, Ts...>::return_type>
+  std::enable_if_t<internal::isAsyncCusolverCallable_v<F, Ts...>,
+                   typename internal::isAsyncCusolverCallable<F, Ts...>::return_type>
   async_execute(F&& f, Ts&&... ts) {
     cudaStream_t stream = stream_pool_.getNextStream();
-    cublasHandle_t handle = handle_pool_.getNextHandle(stream);
+    cusolverDnHandle_t handle = handle_pool_.getNextHandle(stream);
     auto r = pika::invoke(std::forward<F>(f), handle, std::forward<Ts>(ts)...);
     pika::future<void> fut = pika::cuda::experimental::detail::get_future_with_event(stream);
 
@@ -113,14 +114,14 @@ public:
   }
 
   template <class Frame, class F, class Futures>
-  std::enable_if_t<internal::isDataflowCublasCallable_v<F, Futures>> dataflow_finalize(
+  std::enable_if_t<internal::isDataflowCusolverCallable_v<F, Futures>> dataflow_finalize(
       Frame&& frame, F&& f, Futures&& futures) {
     // Ensure the dataflow frame stays alive long enough.
     pika::intrusive_ptr<typename std::remove_pointer<typename std::decay<Frame>::type>::type> frame_p(
         frame);
 
     cudaStream_t stream = stream_pool_.getNextStream();
-    cublasHandle_t handle = handle_pool_.getNextHandle(stream);
+    cusolverDnHandle_t handle = handle_pool_.getNextHandle(stream);
     auto r = pika::invoke_fused(std::forward<F>(f),
                                 pika::tuple_cat(pika::tie(handle), std::forward<Futures>(futures)));
     pika::future<void> fut = pika::cuda::experimental::detail::get_future_with_event(stream);
@@ -131,6 +132,20 @@ public:
                                   stream_pool = stream_pool_, handle_pool = handle_pool_](
                                      pika::future<void>&&) mutable { frame_p->set_data(std::move(r)); });
   }
+
+  template <typename F, typename... Ts>
+  std::enable_if_t<cublas::internal::isAsyncCublasCallable_v<F, Ts...>,
+                   typename cublas::internal::isAsyncCublasCallable<F, Ts...>::return_type>
+  async_execute(F&& f, Ts&&... ts) {
+    return base::async_execute(std::forward<F>(f), std::forward<Ts>(ts)...);
+  }
+
+  template <class Frame, class F, class Futures>
+  std::enable_if_t<cublas::internal::isDataflowCublasCallable_v<F, Futures>> dataflow_finalize(
+      Frame&& frame, F&& f, Futures&& futures) {
+    base::dataflow_finalize(std::forward<Frame>(frame), std::forward<F>(f),
+                            std::forward<Futures>(futures));
+  }
 };
 }
 }
@@ -139,7 +154,7 @@ namespace pika {
 namespace parallel {
 namespace execution {
 template <>
-struct is_two_way_executor<dlaf::cublas::Executor> : std::true_type {};
+struct is_two_way_executor<dlaf::cusolver::Executor> : std::true_type {};
 }
 }
 }

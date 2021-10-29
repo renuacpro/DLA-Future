@@ -12,13 +12,11 @@
 
 /// @file
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 
 #include <cstddef>
 #include <memory>
 #include <utility>
-
-#include <cuda_runtime.h>
 
 #include <pika/execution.hpp>
 #include <pika/functional.hpp>
@@ -27,8 +25,9 @@
 #include <pika/unwrap.hpp>
 
 #include "dlaf/common/assert.h"
-#include "dlaf/cuda/error.h"
-#include "dlaf/cuda/stream_pool.h"
+#include "dlaf/gpu/api.h"
+#include "dlaf/gpu/error.h"
+#include "dlaf/gpu/stream_pool.h"
 
 namespace dlaf {
 namespace cuda {

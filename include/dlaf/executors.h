@@ -13,7 +13,7 @@
 #include <pika/runtime.hpp>
 #include <pika/thread.hpp>
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 #include <pika/cuda.hpp>
 #endif
 
@@ -21,9 +21,9 @@
 #include <dlaf/init.h>
 #include <dlaf/types.h>
 
-#ifdef DLAF_WITH_CUDA
-#include <dlaf/cublas/executor.h>
-#include <dlaf/cusolver/executor.h>
+#ifdef DLAF_WITH_GPU
+#include <dlaf/gpu/blas/executor.h>
+#include <dlaf/gpu/solver/executor.h>
 #endif
 
 namespace dlaf {
@@ -45,7 +45,7 @@ auto getHpExecutor() {
                                             pika::threads::thread_priority::high};
 }
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 template <>
 inline auto getHpExecutor<Backend::GPU>() {
   return dlaf::cusolver::Executor{internal::getHpCudaStreamPool(), internal::getCublasHandlePool(),

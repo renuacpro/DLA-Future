@@ -12,21 +12,20 @@
 
 /// @file
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 
 #include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include <cuda_runtime.h>
-
 #include <pika/modules/concurrency.hpp>
 #include <pika/runtime.hpp>
 #include <pika/thread.hpp>
 
 #include "dlaf/common/assert.h"
-#include "dlaf/cuda/error.h"
+#include "dlaf/gpu/api.h"
+#include "dlaf/gpu/error.h"
 
 namespace dlaf {
 namespace cuda {

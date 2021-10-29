@@ -83,7 +83,7 @@ struct ScheduleRecvBcast {
     return dataflow(ex, unwrapExtendTiles(recvBcast_o), std::move(tile), root_rank, std::move(pcomm));
   }
 
-#if defined(DLAF_WITH_CUDA) && !defined(DLAF_WITH_CUDA_RDMA)
+#if defined(DLAF_WITH_GPU) && !defined(DLAF_WITH_CUDA_RDMA)
   static void call(const comm::Executor& ex, pika::future<matrix::Tile<T, Device::GPU>> tile,
                    comm::IndexT_MPI root_rank, pika::future<common::PromiseGuard<Communicator>> pcomm) {
     using matrix::duplicateIfNeeded;

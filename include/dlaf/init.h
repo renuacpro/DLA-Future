@@ -14,16 +14,16 @@
 #include <pika/program_options.hpp>
 #include <pika/runtime.hpp>
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 #include <pika/cuda.hpp>
 #endif
 
 #include <dlaf/communication/mech.h>
 #include <dlaf/types.h>
 
-#ifdef DLAF_WITH_CUDA
-#include <dlaf/cublas/executor.h>
-#include <dlaf/cusolver/executor.h>
+#ifdef DLAF_WITH_GPU
+#include <dlaf/gpu/blas/executor.h>
+#include <dlaf/gpu/solver/executor.h>
 #endif
 
 namespace dlaf {
@@ -45,7 +45,7 @@ std::ostream& operator<<(std::ostream& os, configuration const& cfg);
 namespace internal {
 configuration& getConfiguration();
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 cuda::StreamPool getNpCudaStreamPool();
 cuda::StreamPool getHpCudaStreamPool();
 cublas::HandlePool getCublasHandlePool();

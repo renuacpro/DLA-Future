@@ -16,10 +16,10 @@
 #include <dlaf/init.h>
 #include <dlaf/memory/memory_chunk.h>
 
-#ifdef DLAF_WITH_CUDA
-#include <dlaf/cublas/executor.h>
-#include <dlaf/cuda/executor.h>
-#include <dlaf/cusolver/executor.h>
+#ifdef DLAF_WITH_GPU
+#include <dlaf/gpu/blas/executor.h>
+#include <dlaf/gpu/executor.h>
+#include <dlaf/gpu/solver/executor.h>
 #endif
 
 #include <cstdlib>
@@ -68,7 +68,7 @@ struct Init<Backend::MC> {
   }
 };
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 static std::unique_ptr<cuda::StreamPool> np_stream_pool{nullptr};
 
 void initializeNpCudaStreamPool(int device, std::size_t num_streams_per_thread) {
@@ -307,7 +307,7 @@ void initialize(pika::program_options::variables_map const& vm, configuration co
 
   DLAF_ASSERT(!internal::initialized(), "");
   internal::Init<Backend::MC>::initialize(cfg);
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
   internal::Init<Backend::GPU>::initialize(cfg);
 #endif
   internal::initialized() = true;
@@ -326,7 +326,7 @@ void initialize(int argc, const char* const argv[], configuration const& user_cf
 void finalize() {
   DLAF_ASSERT(internal::initialized(), "");
   internal::Init<Backend::MC>::finalize();
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
   internal::Init<Backend::GPU>::finalize();
 #endif
   internal::getConfiguration() = {};

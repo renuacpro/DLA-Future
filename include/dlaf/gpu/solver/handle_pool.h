@@ -12,21 +12,20 @@
 
 /// @file
 
-#ifdef DLAF_WITH_CUDA
+#ifdef DLAF_WITH_GPU
 
 #include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include <cuda_runtime.h>
-#include <cusolverDn.h>
-
 #include <pika/runtime.hpp>
 
 #include "dlaf/common/assert.h"
-#include "dlaf/cuda/error.h"
-#include "dlaf/cusolver/error.h"
+#include "dlaf/gpu/api.h"
+#include "dlaf/gpu/error.h"
+#include "dlaf/gpu/solver/api.h"
+#include "dlaf/gpu/solver/error.h"
 
 namespace dlaf {
 namespace cusolver {
