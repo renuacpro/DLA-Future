@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <hpx/local/execution.hpp>
 #include <hpx/local/future.hpp>
 #include <hpx/local/unwrap.hpp>
 
@@ -43,7 +44,7 @@ void copy(Matrix<const T, Source>& source, Matrix<T, Destination>& dest) {
       ex::when_all(source.read_sender(LocalTileIndex(i, j)),
                    dest.readwrite_sender(LocalTileIndex(i, j))) |
           copy(dlaf::internal::Policy<internal::CopyBackend<Source, Destination>::value>{}) |
-          ex::detach();
+          ex::start_detached();
     }
   }
 }

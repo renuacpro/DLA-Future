@@ -324,7 +324,7 @@ void cholesky_diff(HostMatrixType& A, HostMatrixType& L, CommunicatorGrid comm_g
                                     j_loc == 0 ? 0.0 : 1.0,
                                     partial_result.readwrite_sender(LocalTileIndex{i_loc, 0})) |
             dlaf::tile::gemm(dlaf::internal::Policy<dlaf::Backend::MC>()) |
-            hpx::execution::experimental::detach();
+            hpx::execution::experimental::start_detached();
       }
     }
 
