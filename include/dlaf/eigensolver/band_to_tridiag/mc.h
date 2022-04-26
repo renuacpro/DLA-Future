@@ -367,7 +367,7 @@ TridiagResult<T, Device::CPU> BandToTridiag<Backend::MC, D, T>::call_L(
 
   // note: A is square and has square blocksize
   const SizeType size = mat_a.size().cols();
-  const SizeType nrtile = mat_a.nrTiles().cols();
+  const SizeType nrtiles = mat_a.nrTiles().cols();
   const SizeType nb = mat_a.blockSize().cols();
 
   // Need share pointer to keep the allocation until all the tasks are executed.
@@ -396,9 +396,9 @@ TridiagResult<T, Device::CPU> BandToTridiag<Backend::MC, D, T>::call_L(
   // Copy the band matrix
   {
     pika::scoped_annotation ann2("band_to_tridiag/copy");
-    for (SizeType k = 0; k < nrtile; ++k) {
+    for (SizeType k = 0; k < nrtiles; ++k) {
       auto sf = copy_diag(k * nb, mat_a.read_sender(GlobalTileIndex{k, k})) | ex::split();
-      if (k < nrtile - 1) {
+      if (k < nrtiles - 1) {
         for (int i = 0; i < nb / b - 1; ++i) {
           deps.push_back(sf);
         }
@@ -417,7 +417,7 @@ TridiagResult<T, Device::CPU> BandToTridiag<Backend::MC, D, T>::call_L(
 
   // Maximum size / (2b-1) sweeps can be executed in parallel.
   const auto num_threads = get_num_threads("default");
-  const auto max_workers = std::min(ceilDiv(size, 2 * b - 1), to_SizeType(num_threads));
+  const auto max_workers = std::min(ceilDiv(size, 2 * b - 1), 2 * to_SizeType(num_threads));
   vector<Pipeline<SweepWorker<T>>> workers;
   workers.reserve(max_workers);
   for (SizeType i = 0; i < max_workers; ++i)
