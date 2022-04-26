@@ -278,7 +278,7 @@ public:
     startSweepInternal(sweep, a);
   }
 
-  void compactCopyToTile(matrix::Tile<T, Device::CPU>&& tile_v, TileElementIndex index) const noexcept {
+  void compactCopyToTile(matrix::Tile<T, Device::CPU>& tile_v, TileElementIndex index) const noexcept {
     tile_v(index) = tau();
     blas::copy(sizeHHR() - 1, v() + 1, 1, tile_v.ptr(index) + 1, 1);
   }
@@ -381,7 +381,7 @@ TridiagResult<T, Device::CPU> BandToTridiag<Backend::MC, D, T>::call_L(
     return {std::move(mat_trid), std::move(mat_v)};
   }
 
-  const auto max_deps_size = ceilDiv(size, b);
+  const auto max_deps_size = nrtiles;
   vector<pika::execution::experimental::any_sender<>> deps;
   deps.reserve(max_deps_size);
 
@@ -399,25 +399,22 @@ TridiagResult<T, Device::CPU> BandToTridiag<Backend::MC, D, T>::call_L(
     for (SizeType k = 0; k < nrtiles; ++k) {
       auto sf = copy_diag(k * nb, mat_a.read_sender(GlobalTileIndex{k, k})) | ex::split();
       if (k < nrtiles - 1) {
-        for (int i = 0; i < nb / b - 1; ++i) {
-          deps.push_back(sf);
-        }
         auto sf2 = copy_offdiag(k * nb, ex::when_all(std::move(sf),
                                                      mat_a.read_sender(GlobalTileIndex{k + 1, k}))) |
                    ex::split();
         deps.push_back(std::move(sf2));
       }
       else {
-        while (deps.size() < max_deps_size) {
-          deps.push_back(sf);
-        }
+        deps.push_back(sf);
       }
     }
   }
 
-  // Maximum size / (2b-1) sweeps can be executed in parallel.
+  // Maximum size / (2b-1) sweeps can be executed in parallel, however due to task combination it reduces
+  // to size / (2nb-1).
   const auto num_threads = get_num_threads("default");
-  const auto max_workers = std::min(ceilDiv(size, 2 * b - 1), 2 * to_SizeType(num_threads));
+  const auto max_workers = std::min(ceilDiv(size, 2 * nb - 1), 2 * to_SizeType(num_threads));
+
   vector<Pipeline<SweepWorker<T>>> workers;
   workers.reserve(max_workers);
   for (SizeType i = 0; i < max_workers; ++i)
@@ -426,10 +423,12 @@ TridiagResult<T, Device::CPU> BandToTridiag<Backend::MC, D, T>::call_L(
   auto init_sweep = [a_ws](SizeType sweep, PromiseGuard<SweepWorker<T>> worker) {
     worker.ref().startSweep(sweep, *a_ws);
   };
-  auto cont_sweep = [a_ws](PromiseGuard<SweepWorker<T>> worker, matrix::Tile<T, Device::CPU>&& tile_v,
-                           TileElementIndex index) {
-    worker.ref().compactCopyToTile(std::move(tile_v), index);
-    worker.ref().doStep(*a_ws);
+  auto cont_sweep = [a_ws, b](SizeType nr_steps, PromiseGuard<SweepWorker<T>> worker,
+                              matrix::Tile<T, Device::CPU>&& tile_v, TileElementIndex index) {
+    for (SizeType j = 0; j < nr_steps; ++j) {
+      worker.ref().compactCopyToTile(tile_v, index + TileElementSize(j * b, 0));
+      worker.ref().doStep(*a_ws);
+    }
   };
 
   auto copy_tridiag = [a_ws, &mat_trid](SizeType sweep, auto&& dep,
@@ -476,19 +475,28 @@ TridiagResult<T, Device::CPU> BandToTridiag<Backend::MC, D, T>::call_L(
       copy_tridiag(sweep, std::move(dep), policy);
 
       const auto steps = nrStepsForSweep(sweep, size, b);
-      for (SizeType step = 0; step < steps; ++step) {
-        auto dep_index = std::min(step + 1, deps.size() - 1);
+
+      SizeType last_step = 0;
+      for (SizeType step = 0; step < steps;) {
+        SizeType nr_steps = step == 0 ? nb / b - sweep % nb / b : nb / b;
+        nr_steps = std::min(nr_steps, steps - step);
+
+        auto dep_index = std::min(ceilDiv(step + nr_steps, nb / b), deps.size() - 1);
 
         const GlobalElementIndex index_v((sweep / b + step) * b, sweep);
 
-        deps[step] = dlaf::internal::whenAllLift(w_pipeline(),
-                                                 mat_v.readwrite_sender(dist_v.globalTileIndex(index_v)),
-                                                 dist_v.tileElementIndex(index_v), deps[dep_index]) |
-                     dlaf::internal::transform(policy, cont_sweep) | ex::ensure_started() | ex::split();
+        deps[ceilDiv(step, nb / b)] =
+            dlaf::internal::whenAllLift(nr_steps, w_pipeline(),
+                                        mat_v.readwrite_sender(dist_v.globalTileIndex(index_v)),
+                                        dist_v.tileElementIndex(index_v), deps[dep_index]) |
+            dlaf::internal::transform(policy, cont_sweep) | ex::ensure_started() | ex::split();
+
+        last_step = step;
+        step += nr_steps;
       }
 
       // Shrink the dependency vector to only include the futures generated in this sweep.
-      deps.resize(steps);
+      deps.resize(ceilDiv(last_step, nb / b) + 1);
 
       if (thread_hint == 0) {
         pika::this_thread::yield();
