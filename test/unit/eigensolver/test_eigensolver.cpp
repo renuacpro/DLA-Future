@@ -42,7 +42,7 @@ TYPED_TEST_SUITE(EigensolverTestMC, RealMatrixElementTypes);
 template <class T>
 using EigensolverTestGPU = EigensolverTest<T>;
 
-TYPED_TEST_SUITE(EigensolverTestGPU, MatrixElementTypes);
+TYPED_TEST_SUITE(EigensolverTestGPU, RealMatrixElementTypes);
 #endif
 
 const std::vector<blas::Uplo> blas_uplos({blas::Uplo::Lower});
@@ -76,7 +76,10 @@ void testEigensolver(const blas::Uplo uplo, const SizeType m, const SizeType mb)
     return;
 
   auto mat_a_local = allGather(blas::Uplo::General, reference);
-  auto mat_evalues_local = allGather<const T>(blas::Uplo::General, ret.eigenvalues);
+  auto mat_evalues_local  = [&]() {
+    MatrixMirror<const T, Device::CPU, D> mat_evals(ret.eigenvalues);
+    return allGather(blas::Uplo::General, mat_evals.get());
+  }();
   auto mat_e_local = [&]() {
     MatrixMirror<const T, Device::CPU, D> mat_e(ret.eigenvectors);
     return allGather(blas::Uplo::General, mat_e.get());

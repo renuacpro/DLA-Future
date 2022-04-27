@@ -50,6 +50,16 @@ EigensolverResult<T, D> Eigensolver<B, D, T>::call(blas::Uplo uplo, Matrix<T, D>
 
   // Note: This is just a temporary workaround. It will be removed as soon as we will have our
   // tridiagonal eigensolver implementation both on CPU and GPU.
+  Matrix<T, D> evals_device = [&]() {
+    if constexpr (D == Device::CPU)
+      return std::move(evals);
+    else {
+      Matrix<T, D> evals_device(evals.distribution());
+      dlaf::matrix::copy(evals, evals_device);
+      return evals_device;
+    }
+  }();
+
   Matrix<T, D> mat_e_device = [&]() {
     if constexpr (D == Device::CPU)
       return std::move(mat_e);
@@ -63,7 +73,7 @@ EigensolverResult<T, D> Eigensolver<B, D, T>::call(blas::Uplo uplo, Matrix<T, D>
   backTransformationBandToTridiag<B>(band_size, mat_e_device, ret.hh_reflectors);
   backTransformationReductionToBand<B>(band_size, mat_e_device, mat_a, taus);
 
-  return {std::move(evals), std::move(mat_e_device)};
+  return {std::move(evals_device), std::move(mat_e_device)};
 }
 
 }
