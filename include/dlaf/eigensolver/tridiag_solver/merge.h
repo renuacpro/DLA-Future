@@ -499,7 +499,7 @@ inline pika::future<ColTypeLens> partitionIndexForMatrixMultiplication(
 
   TileCollector tc{i_begin, i_end};
   return pika::dataflow(std::move(part_fn), tc.readVec(c), tc.readwriteVec(index));
-};
+}
 
 inline void setColTypeTile(const matrix::Tile<ColType, Device::CPU>& tile, ColType val) {
   SizeType len = tile.size().rows();
