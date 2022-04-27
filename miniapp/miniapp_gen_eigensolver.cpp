@@ -44,7 +44,7 @@ using dlaf::common::Ordering;
 using dlaf::matrix::MatrixMirror;
 
 struct Options
-    : dlaf::miniapp::MiniappOptions<dlaf::miniapp::SupportReal::Yes, dlaf::miniapp::SupportComplex::Yes> {
+    : dlaf::miniapp::MiniappOptions<dlaf::miniapp::SupportReal::Yes, dlaf::miniapp::SupportComplex::No> {
   SizeType m;
   SizeType mb;
   blas::Uplo uplo;

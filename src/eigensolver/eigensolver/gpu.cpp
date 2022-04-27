@@ -14,7 +14,6 @@ namespace dlaf::eigensolver::internal {
 
 DLAF_EIGENSOLVER_ETI(, Backend::GPU, Device::GPU, float)
 DLAF_EIGENSOLVER_ETI(, Backend::GPU, Device::GPU, double)
-DLAF_EIGENSOLVER_ETI(, Backend::GPU, Device::GPU, std::complex<float>)
-DLAF_EIGENSOLVER_ETI(, Backend::GPU, Device::GPU, std::complex<double>)
-
+// DLAF_EIGENSOLVER_ETI(, Backend::GPU, Device::GPU, std::complex<float>)
+// DLAF_EIGENSOLVER_ETI(, Backend::GPU, Device::GPU, std::complex<double>)
 }

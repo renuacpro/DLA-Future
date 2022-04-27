@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include "dlaf/matrix/copy.h"
+#include "dlaf/matrix/index.h"
 #include "dlaf/matrix/matrix.h"
 #include "dlaf/matrix/matrix_mirror.h"
 #include "dlaf_test/matrix/matrix_local.h"
@@ -35,7 +36,7 @@ class GenEigensolverTest : public ::testing::Test {};
 template <class T>
 using GenEigensolverTestMC = GenEigensolverTest<T>;
 
-TYPED_TEST_SUITE(GenEigensolverTestMC, MatrixElementTypes);
+TYPED_TEST_SUITE(GenEigensolverTestMC, RealMatrixElementTypes);
 
 #ifdef DLAF_WITH_CUDA
 template <class T>
@@ -47,7 +48,7 @@ TYPED_TEST_SUITE(GenEigensolverTestGPU, MatrixElementTypes);
 const std::vector<blas::Uplo> blas_uplos({blas::Uplo::Lower});
 
 const std::vector<std::tuple<SizeType, SizeType>> sizes = {
-    {0, 2},                              // m = 0
+    //    {0, 2},                              // m = 0
     {5, 8}, {34, 34},                    // m <= mb
     {4, 3}, {16, 10}, {34, 13}, {32, 5}  // m > mb
 };
@@ -85,7 +86,7 @@ void testGenEigensolver(const blas::Uplo uplo, const SizeType m, const SizeType 
 
   auto mat_a_local = allGather(blas::Uplo::General, reference_a);
   auto mat_b_local = allGather(blas::Uplo::General, reference_b);
-
+  auto mat_evalues_local = allGather<const T>(blas::Uplo::General, ret.eigenvalues);
   auto mat_e_local = [&]() {
     MatrixMirror<const T, Device::CPU, D> mat_e(ret.eigenvectors);
     return allGather(blas::Uplo::General, mat_e.get());
@@ -119,7 +120,7 @@ void testGenEigensolver(const blas::Uplo uplo, const SizeType m, const SizeType 
 
   // Compute Lambda E (in place in mat_e_local)
   for (SizeType j = 0; j < m; ++j) {
-    blas::scal(m, ret.eigenvalues[j], mat_be_local.ptr({0, j}), 1);
+    blas::scal(m, mat_evalues_local({j, 0}), mat_be_local.ptr({0, j}), 1);
   }
 
   // Check A E == Lambda E
