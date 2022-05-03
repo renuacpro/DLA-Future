@@ -23,9 +23,10 @@
 #if defined(DLAF_WITH_HIP)
 
 #include <hipblas.h>
+// Need this macro before the cublasCall definition in error.h
+#define cublasCall           hipblasCall
 #include "dlaf/gpu/blas/error.h"
 
-#define cublasCall           hipblasCall
 #define cublasCherk          hipblasCherk
 #define cublasCreate         hipblasCreate
 #define cublasCtrsm          hipblasCtrsm
