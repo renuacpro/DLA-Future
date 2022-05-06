@@ -102,7 +102,7 @@ public:
     cudaStream_t stream = stream_pool_.getNextStream();
     cublasHandle_t handle = handle_pool_.getNextHandle(stream);
     auto r = pika::invoke(std::forward<F>(f), handle, std::forward<Ts>(ts)...);
-    pika::future<void> fut = pika::cuda::experimental::detail::get_future_with_event(stream);
+    pika::future<void> fut;// = pika::cuda::experimental::detail::get_future_with_event(stream);
 
     // The handle and stream pools are captured by value to ensure that the
     // streams live at least until the event has completed.
@@ -122,7 +122,7 @@ public:
     cublasHandle_t handle = handle_pool_.getNextHandle(stream);
     auto r = pika::invoke_fused(std::forward<F>(f),
                                 pika::tuple_cat(pika::tie(handle), std::forward<Futures>(futures)));
-    pika::future<void> fut = pika::cuda::experimental::detail::get_future_with_event(stream);
+    pika::future<void> fut;// = pika::cuda::experimental::detail::get_future_with_event(stream);
 
     // The handle and stream pools are captured by value to ensure that the
     // streams live at least until the event has completed.

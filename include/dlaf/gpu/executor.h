@@ -60,7 +60,7 @@ public:
   auto async_execute(F&& f, Ts&&... ts) {
     cudaStream_t stream = stream_pool_.getNextStream();
     auto r = pika::invoke(std::forward<F>(f), std::forward<Ts>(ts)..., stream);
-    pika::future<void> fut = pika::cuda::experimental::detail::get_future_with_event(stream);
+    pika::future<void> fut;// = pika::cuda::experimental::detail::get_future_with_event(stream);
 
     // The stream pool is captured by value to ensure that the streams live at
     // least until the event has completed.
@@ -77,7 +77,7 @@ public:
     cudaStream_t stream = stream_pool_.getNextStream();
     auto r = pika::invoke_fused(std::forward<F>(f),
                                 pika::tuple_cat(std::forward<Futures>(futures), pika::tie(stream)));
-    pika::future<void> fut = pika::cuda::experimental::detail::get_future_with_event(stream);
+    pika::future<void> fut;// = pika::cuda::experimental::detail::get_future_with_event(stream);
 
     // The stream pool is captured by value to ensure that the streams live at
     // least until the event has completed.
